@@ -152,7 +152,12 @@ public class PostController {
     public List<Post> recommend(@RequestParam(value = "userId", required = false) Long userId,
                                 @RequestParam(value = "page", defaultValue = "1") int page,
                                 @RequestParam(value = "size", defaultValue = "10") int size) {
-        return postService.listRecommended(userId, page, size);
+        try {
+            return postService.listRecommended(userId, page, size);
+        } catch (Exception e) {
+            // 线上环境若互动相关表/字段不完整，推荐流降级为随机流，避免前端直接 500
+            return postService.listRandom(size);
+        }
     }
 
     /**
