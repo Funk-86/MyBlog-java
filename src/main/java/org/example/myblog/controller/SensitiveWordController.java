@@ -18,13 +18,25 @@ public class SensitiveWordController {
     private SensitiveWordMapper sensitiveWordMapper;
 
     /**
-     * 管理端：违禁词列表
-     * GET /sensitive-word/admin/list
+     * 管理端：违禁词列表（分页）
+     * GET /sensitive-word/admin/list?page=1&size=20
+     * 返回：{ "list": [...], "total": 总数 }
      */
     @GetMapping("/admin/list")
     @ResponseBody
-    public List<SensitiveWord> listForAdmin() {
-        return sensitiveWordMapper.listAll();
+    public Map<String, Object> listForAdmin(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size) {
+        if (page < 1) page = 1;
+        if (size < 1) size = 20;
+        if (size > 200) size = 200;
+        int offset = (page - 1) * size;
+        long total = sensitiveWordMapper.countAll();
+        List<SensitiveWord> list = sensitiveWordMapper.listPaged(offset, size);
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", list);
+        result.put("total", total);
+        return result;
     }
 
     /**

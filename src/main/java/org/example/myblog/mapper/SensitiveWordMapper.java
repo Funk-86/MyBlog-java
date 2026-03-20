@@ -17,6 +17,12 @@ public interface SensitiveWordMapper {
     @Select("SELECT id, word, level, status, created_at AS createdAt, updated_at AS updatedAt FROM sensitive_word ORDER BY id DESC")
     List<SensitiveWord> listAll();
 
+    @Select("SELECT COUNT(*) FROM sensitive_word")
+    long countAll();
+
+    @Select("SELECT id, word, level, status, created_at AS createdAt, updated_at AS updatedAt FROM sensitive_word ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}")
+    List<SensitiveWord> listPaged(@Param("offset") int offset, @Param("limit") int limit);
+
     @Insert("INSERT INTO sensitive_word(word, level, status, created_at, updated_at) " +
             "VALUES(#{word}, #{level}, #{status}, NOW(), NOW())")
     @Options(useGeneratedKeys = true, keyProperty = "id")
