@@ -59,6 +59,28 @@ public class PostController {
     @Value("${video.upload.transcode.audio-bitrate-k:96}")
     private int videoTranscodeAudioBitrateK;
 
+    @Value("${video.upload.ffmpeg-bin:ffmpeg}")
+    private String ffmpegBin;
+
+    private static volatile Boolean FFMPEG_AVAILABLE = null;
+
+    private boolean isFfmpegAvailable() {
+        if (FFMPEG_AVAILABLE != null) return FFMPEG_AVAILABLE;
+        synchronized (PostController.class) {
+            if (FFMPEG_AVAILABLE != null) return FFMPEG_AVAILABLE;
+            try {
+                ProcessBuilder pb = new ProcessBuilder(ffmpegBin, "-version");
+                pb.redirectErrorStream(true);
+                Process p = pb.start();
+                boolean ok = p.waitFor(3, TimeUnit.SECONDS) && p.exitValue() == 0;
+                FFMPEG_AVAILABLE = ok;
+            } catch (Exception e) {
+                FFMPEG_AVAILABLE = false;
+            }
+        }
+        return FFMPEG_AVAILABLE;
+    }
+
     /**
      * 管理端：待审核帖子列表（status=1）
      * GET /post/admin/pending?page=1&size=20
@@ -464,6 +486,11 @@ public class PostController {
             return "/post_video/" + fallbackFileName;
         }
 
+        if (!isFfmpegAvailable()) {
+            System.err.println("[uploadVideo] ffmpeg not available, skip transcode and return original: " + fallbackFileName);
+            return "/post_video/" + fallbackFileName;
+        }
+
         // 转码降画质：输出为 mp4
         Path tmpInput = null;
         Path transcodedTarget = null;
@@ -481,7 +508,7 @@ public class PostController {
             String ab = String.valueOf(videoTranscodeAudioBitrateK) + "k";
 
             ProcessBuilder pb = new ProcessBuilder(
-                    "ffmpeg",
+                    ffmpegBin,
                     "-y",
                     "-i",
                     tmpInput.toAbsolutePath().toString(),
