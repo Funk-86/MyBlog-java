@@ -67,6 +67,41 @@ public class UserController {
     }
 
     /**
+     * 管理端：添加用户
+     * POST /user/admin/add
+     * Body: { "username": "xx", "email": "xx@xx.com", "password": "xx", "role": 0 }
+     * role: 0=普通用户 1=管理员
+     */
+    @PostMapping("/admin/add")
+    @ResponseBody
+    public Map<String, Object> adminAddUser(@RequestBody Map<String, Object> body) {
+        String username = body.get("username") != null ? body.get("username").toString().trim() : null;
+        String email = body.get("email") != null ? body.get("email").toString().trim() : null;
+        String password = body.get("password") != null ? body.get("password").toString() : null;
+        Object roleObj = body.get("role");
+        Integer role = (roleObj instanceof Number) ? ((Number) roleObj).intValue() : 0;
+        if (username == null || username.isEmpty()) {
+            throw new IllegalArgumentException("用户名不能为空");
+        }
+        if (email == null || email.isEmpty()) {
+            throw new IllegalArgumentException("邮箱不能为空");
+        }
+        if (password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("密码不能为空");
+        }
+        User user = userService.createUserByAdmin(username, email, password, role);
+        Map<String, Object> result = new HashMap<>();
+        if (user == null) {
+            result.put("success", false);
+            result.put("message", "用户名或邮箱已存在");
+        } else {
+            result.put("success", true);
+            result.put("user", user);
+        }
+        return result;
+    }
+
+    /**
      * 管理端：封禁/解封/注销用户（批量）
      * PUT /user/admin/status
      * Body: { "ids": [1, 2], "status": 1, "duration": { "value": 7, "unit": "day" } }  // 封禁时可选 duration；无或 unit=permanent 为永久

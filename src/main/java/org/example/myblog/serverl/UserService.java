@@ -25,6 +25,17 @@ public interface UserService {
     User registerByEmail(String email, String code, String rawPassword);
 
     /**
+     * 管理端：直接创建用户（无需验证码）
+     *
+     * @param username    用户名
+     * @param email       邮箱
+     * @param rawPassword 原始密码
+     * @param role        角色 0=普通用户 1=管理员
+     * @return 创建成功返回新用户，失败返回 null（用户名或邮箱已存在）
+     */
+    User createUserByAdmin(String username, String email, String rawPassword, Integer role);
+
+    /**
      * 通过邮箱 + 验证码重置密码
      *
      * @return 成功返回 true，失败返回 false

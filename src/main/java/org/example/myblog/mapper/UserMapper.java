@@ -67,6 +67,16 @@ public interface UserMapper {
     User selectByEmail(@Param("email") String email);
 
     /**
+     * 根据用户名查询用户
+     */
+    @Select("""
+            SELECT id, username, email
+            FROM `user`
+            WHERE username = #{username}
+            """)
+    User selectByUsername(@Param("username") String username);
+
+    /**
      * 根据主键查询用户（聊天等场景使用）
      */
     @Select("""
@@ -96,11 +106,11 @@ public interface UserMapper {
     Map<String, Object> selectByIdWithProfile(@Param("id") Long id);
 
     /**
-     * 插入新用户（用于邮箱注册）
+     * 插入新用户（用于邮箱注册、管理端添加）
      */
     @Insert("""
-            INSERT INTO `user` (username, email, password_hash, salt, status)
-            VALUES (#{username}, #{email}, #{passwordHash}, #{salt}, #{status})
+            INSERT INTO `user` (username, email, password_hash, salt, role, status, created_at, updated_at)
+            VALUES (#{username}, #{email}, #{passwordHash}, #{salt}, COALESCE(#{role}, 0), #{status}, NOW(), NOW())
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(User user);

@@ -61,6 +61,24 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public User createUserByAdmin(String username, String email, String rawPassword, Integer role) {
+        if (username == null || username.trim().isEmpty()) return null;
+        if (email == null || email.trim().isEmpty()) return null;
+        if (rawPassword == null || rawPassword.isEmpty()) return null;
+        if (userMapper.selectByUsername(username.trim()) != null) return null;
+        if (userMapper.selectByEmail(email.trim()) != null) return null;
+        User user = new User();
+        user.setUsername(username.trim());
+        user.setEmail(email.trim());
+        user.setPasswordHash(rawPassword);
+        user.setSalt(null);
+        user.setRole(role != null && role == 1 ? 1 : 0);
+        user.setStatus(0);
+        userMapper.insert(user);
+        return user;
+    }
+
+    @Override
     public boolean resetPasswordByEmail(String email, String code, String newRawPassword) {
         boolean ok = emailCodeService.verifyResetCode(email, code);
         if (!ok) {
