@@ -18,16 +18,17 @@ public class StaticResourceConfig implements WebMvcConfigurer {
         Path userDir = Paths.get("user_img").toAbsolutePath().normalize();
         registry.addResourceHandler("/user_img/**")
                 .addResourceLocations(userDir.toUri().toString())
-                // 降低“刚上传即请求到 404，随后又出现”的概率（避免浏览器/中间层对 404 做负缓存）
-                .setCachePeriod(0);
+                // 上传后可能会出现“刚好在文件生成间隙请求”的情况
+                // 前端会在失败时自动带时间戳重试，因此可以适当缓存提升加载速度
+                .setCachePeriod(3600);
         Path postDir = Paths.get("post_img").toAbsolutePath().normalize();
         registry.addResourceHandler("/post_img/**")
                 .addResourceLocations(postDir.toUri().toString())
-                .setCachePeriod(0);
+                .setCachePeriod(3600);
         Path videoDir = Paths.get("post_video").toAbsolutePath().normalize();
         registry.addResourceHandler("/post_video/**")
                 .addResourceLocations(videoDir.toUri().toString())
-                .setCachePeriod(0);
+                .setCachePeriod(3600);
     }
 }
 

@@ -336,7 +336,8 @@ public class UserController {
         String fileName = userId + "_" + UUID.randomUUID() + ext;
         Path targetPath = uploadDir.resolve(fileName);
 
-        Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+        // 在云环境中优先使用 transferTo，减少流读取/复制带来的不稳定与耗时
+        file.transferTo(targetPath);
 
         // 对外访问路径
         String avatarUrl = "/user_img/" + fileName;

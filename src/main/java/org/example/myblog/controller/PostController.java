@@ -443,7 +443,8 @@ public class PostController {
         }
         String fileName = UUID.randomUUID() + ext;
         Path target = uploadDir.resolve(fileName);
-        Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+        // 云环境下优先使用 transferTo，减少流复制带来的耗时/不稳定
+        file.transferTo(target);
         return "/post_img/" + fileName;
     }
 
