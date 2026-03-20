@@ -59,6 +59,10 @@ public class PostController {
     @Value("${video.upload.transcode.audio-bitrate-k:96}")
     private int videoTranscodeAudioBitrateK;
 
+    /** 转码最长等待（秒）；超时则直接返回“原视频回退”，避免网关/客户端超时 */
+    @Value("${video.upload.transcode.timeout-seconds:20}")
+    private int videoTranscodeTimeoutSeconds;
+
     @Value("${video.upload.ffmpeg-bin:ffmpeg}")
     private String ffmpegBin;
 
@@ -499,6 +503,12 @@ public class PostController {
 
             transcodedTarget = uploadDir.resolve(UUID.randomUUID() + ".mp4");
 
+            // 先把“原视频”回退文件落盘，确保即使转码等太久也能尽快返回可用 URL
+            // 注意：回退文件扩展名保持原扩展名，避免内容-扩展名不匹配导致无法播放
+            try {
+                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception ignore) {}
+
             String vf = "scale='if(gt(iw,ih)," + videoTranscodeMaxSide + ",-2)':'if(gt(iw,ih),-2," + videoTranscodeMaxSide + ")':force_original_aspect_ratio=decrease";
             String crf = String.valueOf(videoTranscodeCrf);
             String ab = String.valueOf(videoTranscodeAudioBitrateK) + "k";
@@ -531,26 +541,33 @@ public class PostController {
 
             Process p = pb.start();
 
-            boolean finished = p.waitFor(55, TimeUnit.SECONDS);
+            boolean finished = p.waitFor(videoTranscodeTimeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
                 // 让客户端请求优先在“可控时间”内拿到响应：转码超时则回退原文件
                 try {
                     p.destroyForcibly();
                     p.waitFor(5, TimeUnit.SECONDS);
                 } catch (Exception ignore) {}
-                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                // 回退文件通常已存在；若不存在再补一次
+                if (!Files.exists(fallbackTarget) || Files.size(fallbackTarget) <= 0) {
+                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                }
                 return "/post_video/" + fallbackFileName;
             }
 
             int exitCode = p.exitValue();
             if (exitCode != 0) {
                 // 转码失败：回退保存临时文件内容到 fallbackTarget
-                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                if (!Files.exists(fallbackTarget) || Files.size(fallbackTarget) <= 0) {
+                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                }
                 return "/post_video/" + fallbackFileName;
             }
 
             if (!Files.exists(transcodedTarget) || Files.size(transcodedTarget) <= 0) {
-                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                if (!Files.exists(fallbackTarget) || Files.size(fallbackTarget) <= 0) {
+                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                }
                 return "/post_video/" + fallbackFileName;
             }
 
