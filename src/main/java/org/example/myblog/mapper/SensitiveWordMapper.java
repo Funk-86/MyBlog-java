@@ -11,6 +11,9 @@ public interface SensitiveWordMapper {
     @Select("SELECT word FROM sensitive_word WHERE status = 0")
     List<String> listActiveWords();
 
+    @Select("SELECT id, word, level, status, created_at AS createdAt, updated_at AS updatedAt FROM sensitive_word WHERE status = 0")
+    List<SensitiveWord> listActiveEntries();
+
     @Select("SELECT id, word, level, status, created_at AS createdAt, updated_at AS updatedAt FROM sensitive_word ORDER BY id DESC")
     List<SensitiveWord> listAll();
 

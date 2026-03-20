@@ -12,6 +12,7 @@ import org.example.myblog.mapper.PostMediaMapper;
 import org.example.myblog.mapper.TopicMapper;
 import org.example.myblog.serverl.ChatService;
 import org.example.myblog.serverl.AliyunGreenService;
+import org.example.myblog.serverl.ContentModerationService;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,6 +67,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired(required = false)
     private RedisTemplate<String, String> redisTemplate;
+
+    @Autowired(required = false)
+    private ContentModerationService contentModerationService;
 
     @Override
     public Post createPost(Long userId,
@@ -129,6 +133,17 @@ public class PostServiceImpl implements PostService {
                                      String videoCoverUrl,
                                      Integer videoDurationSeconds,
                                      Integer visibility) {
+        // 本地敏感词分级策略：高风险拦截，中风险人工审核，低风险提醒
+        String toCheck = ((title == null ? "" : title) + "\n" + (content == null ? "" : content)).trim();
+        ContentModerationService.ModerationResult reviewResult =
+                contentModerationService != null ? contentModerationService.moderateText(toCheck) : ContentModerationService.ModerationResult.none();
+        if (reviewResult.getAction() == ContentModerationService.ModerationAction.BLOCK) {
+            throw new RuntimeException("POST_FORBIDDEN");
+        }
+        if (reviewResult.getAction() == ContentModerationService.ModerationAction.REVIEW) {
+            throw new RuntimeException("POST_REVIEW_REQUIRED");
+        }
+
         Post post = new Post();
         post.setUserId(userId);
         post.setTitle(title);
@@ -187,6 +202,7 @@ public class PostServiceImpl implements PostService {
         sendSystemNotify(userId, buildPendingText(title));
         return post;
     }
+
 
     @Override
     public Post getPostDetail(Long id) {

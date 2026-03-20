@@ -228,20 +228,38 @@ public class PostController {
      */
     @PostMapping("/create")
     @ResponseBody
-    public Post create(@RequestBody CreatePostRequest req) {
-        return postService.createPostWithImages(
-                req.getUserId(),
-                req.getTitle(),
-                req.getContent(),
-                req.getImages(),
-                req.getCategoryId1(),
-                req.getCategoryId2(),
-                req.getTopics(),
-                req.getVideoUrl(),
-                req.getVideoCoverUrl(),
-                req.getVideoDurationSeconds(),
-                req.getVisibility()
-        );
+    public Object create(@RequestBody CreatePostRequest req) {
+        try {
+            return postService.createPostWithImages(
+                    req.getUserId(),
+                    req.getTitle(),
+                    req.getContent(),
+                    req.getImages(),
+                    req.getCategoryId1(),
+                    req.getCategoryId2(),
+                    req.getTopics(),
+                    req.getVideoUrl(),
+                    req.getVideoCoverUrl(),
+                    req.getVideoDurationSeconds(),
+                    req.getVisibility()
+            );
+        } catch (RuntimeException e) {
+            if ("POST_FORBIDDEN".equals(e.getMessage())) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", false);
+                result.put("code", "POST_FORBIDDEN");
+                result.put("message", "帖子内容包含敏感词，已被拦截");
+                return result;
+            }
+            if ("POST_REVIEW_REQUIRED".equals(e.getMessage())) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", false);
+                result.put("code", "POST_REVIEW_REQUIRED");
+                result.put("message", "帖子内容疑似风险，已进入人工审核");
+                return result;
+            }
+            throw e;
+        }
     }
 
     /**

@@ -6,8 +6,8 @@ import org.example.myblog.entiy.Post;
 import org.example.myblog.mapper.CommentLikeMapper;
 import org.example.myblog.mapper.CommentMapper;
 import org.example.myblog.mapper.PostMapper;
-import org.example.myblog.mapper.SensitiveWordMapper;
 import org.example.myblog.serverl.CommentService;
+import org.example.myblog.serverl.ContentModerationService;
 import org.example.myblog.serverl.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -17,11 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 @Service
 public class CommentServiceImpl implements CommentService {
@@ -40,24 +38,22 @@ public class CommentServiceImpl implements CommentService {
     private RedisTemplate<String, String> redisTemplate;
 
     @Autowired(required = false)
-    private SensitiveWordMapper sensitiveWordMapper;
+    private ContentModerationService contentModerationService;
 
     @Override
     @Transactional
     public Comment createComment(Long postId, Long userId, String content, Long parentId, Long rootId) {
-        // 本地敏感词拦截
-        if (content != null && !content.isBlank() && sensitiveWordMapper != null) {
-            List<String> words = sensitiveWordMapper.listActiveWords();
-            if (words != null && !words.isEmpty()) {
-                for (String w : words) {
-                    if (w == null || w.isBlank()) {
-                        continue;
-                    }
-                    if (content.contains(w)) {
-                        throw new RuntimeException("COMMENT_FORBIDDEN");
-                    }
-                }
-            }
+        // 本地敏感词分级策略：高风险拦截，中风险人工审核，低风险提醒
+        ContentModerationService.ModerationResult reviewResult =
+                contentModerationService != null ? contentModerationService.moderateText(content) : ContentModerationService.ModerationResult.none();
+        if (reviewResult.getAction() == ContentModerationService.ModerationAction.BLOCK) {
+            throw new RuntimeException("COMMENT_FORBIDDEN");
+        }
+        if (reviewResult.getAction() == ContentModerationService.ModerationAction.REVIEW) {
+            throw new RuntimeException("COMMENT_REVIEW_REQUIRED");
+        }
+        if (reviewResult.getAction() == ContentModerationService.ModerationAction.WARN) {
+            // 低风险词仅提醒，不阻断发评流程
         }
 
         Comment comment = new Comment();
@@ -225,5 +221,6 @@ public class CommentServiceImpl implements CommentService {
         // createdAt / updatedAt 如有需要可在这里解析字符串为 LocalDateTime
         return c;
     }
+
 }
 

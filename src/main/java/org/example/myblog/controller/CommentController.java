@@ -45,6 +45,10 @@ public class CommentController {
                 result.put("success", false);
                 result.put("code", "COMMENT_FORBIDDEN");
                 result.put("message", "评论内容包含敏感词，已被拦截");
+            } else if ("COMMENT_REVIEW_REQUIRED".equals(e.getMessage())) {
+                result.put("success", false);
+                result.put("code", "COMMENT_REVIEW_REQUIRED");
+                result.put("message", "评论内容疑似风险，已进入人工审核");
             } else {
                 throw e;
             }
