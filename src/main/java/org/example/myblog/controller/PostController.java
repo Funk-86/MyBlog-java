@@ -471,38 +471,36 @@ public class PostController {
             ext = original.substring(original.lastIndexOf("."));
         }
 
-        // 默认：直接保存原视频（fallback）
+        // fallback：永远能返回一个可用视频文件
         String fallbackFileName = UUID.randomUUID() + (ext != null && !ext.isBlank() ? ext : ".mp4");
         Path fallbackTarget = uploadDir.resolve(fallbackFileName);
 
-        try (InputStream is = file.getInputStream()) {
-            Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception e) {
-            // 兜底：确保 fallbackTarget 不会因读取失败而不存在
-            throw e;
-        }
-
+        // 未超过额定大小：直接保存原视频（不做转码）
         if (!shouldTranscode) {
+            try (InputStream is = file.getInputStream()) {
+                Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+            }
             return "/post_video/" + fallbackFileName;
         }
 
+        // 超过额定大小：先检查 ffmpeg 是否可用
         if (!isFfmpegAvailable()) {
-            System.err.println("[uploadVideo] ffmpeg not available, skip transcode and return original: " + fallbackFileName);
+            System.err.println("[uploadVideo] ffmpeg not available, save original only: " + fallbackFileName);
+            try (InputStream is = file.getInputStream()) {
+                Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+            }
             return "/post_video/" + fallbackFileName;
         }
 
-        // 转码降画质：输出为 mp4
+        // 超过额定大小且 ffmpeg 可用：只落盘一次到临时文件，再转码/回退
         Path tmpInput = null;
         Path transcodedTarget = null;
         try {
             tmpInput = Files.createTempFile("video-upload-", ext != null && ext.startsWith(".") ? ext : ".mp4");
-            // multipart 到临时文件
             file.transferTo(tmpInput);
 
             transcodedTarget = uploadDir.resolve(UUID.randomUUID() + ".mp4");
 
-            // 保持长宽比并将最长边缩放到 videoTranscodeMaxSide
-            // 横屏：iw>ih 时 width=maxSide, height=-2；竖屏：height=maxSide, width=-2
             String vf = "scale='if(gt(iw,ih)," + videoTranscodeMaxSide + ",-2)':'if(gt(iw,ih),-2," + videoTranscodeMaxSide + ")':force_original_aspect_ratio=decrease";
             String crf = String.valueOf(videoTranscodeCrf);
             String ab = String.valueOf(videoTranscodeAudioBitrateK) + "k";
@@ -534,18 +532,28 @@ public class PostController {
             boolean finished = p.waitFor(5, TimeUnit.MINUTES);
             int exitCode = finished ? p.exitValue() : -1;
             if (exitCode != 0) {
-                // 转码失败：返回 fallback
+                // 转码失败：回退保存临时文件内容到 fallbackTarget
+                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
                 return "/post_video/" + fallbackFileName;
             }
 
             if (!Files.exists(transcodedTarget) || Files.size(transcodedTarget) <= 0) {
+                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
                 return "/post_video/" + fallbackFileName;
             }
 
-            // 转码成功：删除 fallback（可选）；这里先不删，避免并发问题/回滚困难
             return "/post_video/" + transcodedTarget.getFileName().toString();
         } catch (Throwable t) {
-            // ffmpeg 不存在、转码报错等：回退原视频
+            // 转码报错：回退
+            try {
+                if (tmpInput != null && Files.exists(tmpInput)) {
+                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                } else {
+                    try (InputStream is = file.getInputStream()) {
+                        Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            } catch (Exception ignore) {}
             return "/post_video/" + fallbackFileName;
         } finally {
             try {
