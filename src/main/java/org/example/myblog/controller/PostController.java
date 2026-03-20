@@ -6,19 +6,23 @@ import org.example.myblog.mapper.PostMapper;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 帖子相关接口
@@ -35,6 +39,25 @@ public class PostController {
 
     @Autowired
     private PostMapper postMapper;
+
+    /**
+     * 视频上传“额定大小”（超过后自动转码降画质）
+     * 单位：MB
+     */
+    @Value("${video.upload.rated-size-mb:50}")
+    private long videoRatedSizeMb;
+
+    /** 转码时：最长边（竖/横都按最长边裁剪到该值） */
+    @Value("${video.upload.transcode.max-side:720}")
+    private int videoTranscodeMaxSide;
+
+    /** 转码时：CRF（值越大画质越低、体积越小；例如 28-32） */
+    @Value("${video.upload.transcode.crf:28}")
+    private int videoTranscodeCrf;
+
+    /** 转码时：音频码率 kbps */
+    @Value("${video.upload.transcode.audio-bitrate-k:96}")
+    private int videoTranscodeAudioBitrateK;
 
     /**
      * 管理端：待审核帖子列表（status=1）
@@ -415,15 +438,93 @@ public class PostController {
         }
         Path uploadDir = Paths.get("post_video").toAbsolutePath().normalize();
         Files.createDirectories(uploadDir);
+
+        long ratedBytes = Math.max(1L, videoRatedSizeMb) * 1024L * 1024L;
+        long size = file.getSize(); // 可能返回 -1（未知），未知则不转码
+        boolean shouldTranscode = size > 0 && size > ratedBytes;
+
         String original = file.getOriginalFilename();
         String ext = "";
         if (original != null && original.contains(".")) {
             ext = original.substring(original.lastIndexOf("."));
         }
-        String fileName = UUID.randomUUID() + ext;
-        Path target = uploadDir.resolve(fileName);
-        Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
-        return "/post_video/" + fileName;
+
+        // 默认：直接保存原视频（fallback）
+        String fallbackFileName = UUID.randomUUID() + (ext != null && !ext.isBlank() ? ext : ".mp4");
+        Path fallbackTarget = uploadDir.resolve(fallbackFileName);
+
+        try (InputStream is = file.getInputStream()) {
+            Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            // 兜底：确保 fallbackTarget 不会因读取失败而不存在
+            throw e;
+        }
+
+        if (!shouldTranscode) {
+            return "/post_video/" + fallbackFileName;
+        }
+
+        // 转码降画质：输出为 mp4
+        Path tmpInput = null;
+        Path transcodedTarget = null;
+        try {
+            tmpInput = Files.createTempFile("video-upload-", ext != null && ext.startsWith(".") ? ext : ".mp4");
+            // multipart 到临时文件
+            file.transferTo(tmpInput);
+
+            transcodedTarget = uploadDir.resolve(UUID.randomUUID() + ".mp4");
+
+            // 保持长宽比并将最长边缩放到 videoTranscodeMaxSide
+            // 横屏：iw>ih 时 width=maxSide, height=-2；竖屏：height=maxSide, width=-2
+            String vf = "scale='if(gt(iw,ih)," + videoTranscodeMaxSide + ",-2)':'if(gt(iw,ih),-2," + videoTranscodeMaxSide + ")':force_original_aspect_ratio=decrease";
+            String crf = String.valueOf(videoTranscodeCrf);
+            String ab = String.valueOf(videoTranscodeAudioBitrateK) + "k";
+
+            ProcessBuilder pb = new ProcessBuilder(
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    tmpInput.toAbsolutePath().toString(),
+                    "-vf",
+                    vf,
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    crf,
+                    "-preset",
+                    "veryfast",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    ab,
+                    "-movflags",
+                    "+faststart",
+                    transcodedTarget.toAbsolutePath().toString()
+            );
+            pb.redirectErrorStream(true);
+
+            Process p = pb.start();
+            boolean finished = p.waitFor(5, TimeUnit.MINUTES);
+            int exitCode = finished ? p.exitValue() : -1;
+            if (exitCode != 0) {
+                // 转码失败：返回 fallback
+                return "/post_video/" + fallbackFileName;
+            }
+
+            if (!Files.exists(transcodedTarget) || Files.size(transcodedTarget) <= 0) {
+                return "/post_video/" + fallbackFileName;
+            }
+
+            // 转码成功：删除 fallback（可选）；这里先不删，避免并发问题/回滚困难
+            return "/post_video/" + transcodedTarget.getFileName().toString();
+        } catch (Throwable t) {
+            // ffmpeg 不存在、转码报错等：回退原视频
+            return "/post_video/" + fallbackFileName;
+        } finally {
+            try {
+                if (tmpInput != null && Files.exists(tmpInput)) Files.deleteIfExists(tmpInput);
+            } catch (Exception ignore) {}
+        }
     }
 }
 
