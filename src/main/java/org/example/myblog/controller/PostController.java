@@ -477,24 +477,21 @@ public class PostController {
 
         // 未超过额定大小：直接保存原视频（不做转码）
         if (!shouldTranscode) {
-            try (InputStream is = file.getInputStream()) {
-                Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-            }
+            file.transferTo(fallbackTarget);
             return "/post_video/" + fallbackFileName;
         }
 
         // 超过额定大小：先检查 ffmpeg 是否可用
         if (!isFfmpegAvailable()) {
             System.err.println("[uploadVideo] ffmpeg not available, save original only: " + fallbackFileName);
-            try (InputStream is = file.getInputStream()) {
-                Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-            }
+            file.transferTo(fallbackTarget);
             return "/post_video/" + fallbackFileName;
         }
 
         // 超过额定大小且 ffmpeg 可用：只落盘一次到临时文件，再转码/回退
         Path tmpInput = null;
         Path transcodedTarget = null;
+        Path ffmpegLog = null;
         try {
             tmpInput = Files.createTempFile("video-upload-", ext != null && ext.startsWith(".") ? ext : ".mp4");
             file.transferTo(tmpInput);
@@ -527,10 +524,24 @@ public class PostController {
                     transcodedTarget.toAbsolutePath().toString()
             );
             pb.redirectErrorStream(true);
+            // 把 ffmpeg 输出落到文件，避免大量 stderr/stdout 写入导致进程阻塞
+            ffmpegLog = Files.createTempFile("ffmpeg-upload-", ".log");
+            pb.redirectOutput(ffmpegLog.toFile());
 
             Process p = pb.start();
-            boolean finished = p.waitFor(5, TimeUnit.MINUTES);
-            int exitCode = finished ? p.exitValue() : -1;
+
+            boolean finished = p.waitFor(55, TimeUnit.SECONDS);
+            if (!finished) {
+                // 让客户端请求优先在“可控时间”内拿到响应：转码超时则回退原文件
+                try {
+                    p.destroyForcibly();
+                    p.waitFor(5, TimeUnit.SECONDS);
+                } catch (Exception ignore) {}
+                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
+                return "/post_video/" + fallbackFileName;
+            }
+
+            int exitCode = p.exitValue();
             if (exitCode != 0) {
                 // 转码失败：回退保存临时文件内容到 fallbackTarget
                 Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
@@ -549,9 +560,8 @@ public class PostController {
                 if (tmpInput != null && Files.exists(tmpInput)) {
                     Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
                 } else {
-                    try (InputStream is = file.getInputStream()) {
-                        Files.copy(is, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-                    }
+                    // 最后兜底：尽量使用 transferTo
+                    file.transferTo(fallbackTarget);
                 }
             } catch (Exception ignore) {}
             return "/post_video/" + fallbackFileName;

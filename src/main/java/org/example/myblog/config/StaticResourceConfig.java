@@ -17,13 +17,17 @@ public class StaticResourceConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         Path userDir = Paths.get("user_img").toAbsolutePath().normalize();
         registry.addResourceHandler("/user_img/**")
-                .addResourceLocations(userDir.toUri().toString());
+                .addResourceLocations(userDir.toUri().toString())
+                // 降低“刚上传即请求到 404，随后又出现”的概率（避免浏览器/中间层对 404 做负缓存）
+                .setCachePeriod(0);
         Path postDir = Paths.get("post_img").toAbsolutePath().normalize();
         registry.addResourceHandler("/post_img/**")
-                .addResourceLocations(postDir.toUri().toString());
+                .addResourceLocations(postDir.toUri().toString())
+                .setCachePeriod(0);
         Path videoDir = Paths.get("post_video").toAbsolutePath().normalize();
         registry.addResourceHandler("/post_video/**")
-                .addResourceLocations(videoDir.toUri().toString());
+                .addResourceLocations(videoDir.toUri().toString())
+                .setCachePeriod(0);
     }
 }
 
