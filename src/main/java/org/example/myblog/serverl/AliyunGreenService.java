@@ -313,10 +313,10 @@ public class AliyunGreenService {
             System.out.println(">>> asyncCheckPostContent updated status=3 (block) for postId = " + post.getId());
             sendSystemNotify(post.getUserId(), buildAiRejectedText(post.getTitle()));
         } else if ("review".equalsIgnoreCase(finalSuggestion)) {
-            // 只要是 review 也视为不通过，统一屏蔽
-            postMapper.updateStatus(post.getId(), 3);
-            System.out.println(">>> asyncCheckPostContent updated status=3 (review->block) for postId = " + post.getId());
-            sendSystemNotify(post.getUserId(), buildAiRejectedText(post.getTitle()));
+            // AI 建议人工审核：进入后台审核列表（status=1）
+            postMapper.updateStatus(post.getId(), 1);
+            System.out.println(">>> asyncCheckPostContent updated status=1 (review->manual) for postId = " + post.getId());
+            sendSystemNotify(post.getUserId(), buildAiReviewText(post.getTitle()));
         } else {
             postMapper.updateStatus(post.getId(), 0);
             System.out.println(">>> asyncCheckPostContent updated status=0 (pass) for postId = " + post.getId());
@@ -345,6 +345,11 @@ public class AliyunGreenService {
     private String buildAiRejectedText(String title) {
         String t = (title == null || title.isBlank()) ? "您发布的帖子" : "您发布的《" + title + "》";
         return t + "未通过审核，已被系统拦截。";
+    }
+
+    private String buildAiReviewText(String title) {
+        String t = (title == null || title.isBlank()) ? "您发布的帖子" : "您发布的《" + title + "》";
+        return t + "审核中，已进入人工复核流程。";
     }
 
     private String mergeSuggestion(String... suggestions) {
