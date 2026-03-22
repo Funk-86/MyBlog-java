@@ -11,6 +11,9 @@ public class ConversationDTO {
 
     private Long peerId;
 
+    /** 对端登录名 user.username，用于识别系统账号「系统聊天」等 */
+    private String peerUsername;
+
     private String peerName;
 
     private String peerAvatar;

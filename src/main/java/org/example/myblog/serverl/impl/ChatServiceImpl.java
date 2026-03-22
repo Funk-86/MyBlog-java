@@ -1,11 +1,13 @@
 package org.example.myblog.serverl.impl;
 
+import org.example.myblog.constant.UserConstants;
 import org.example.myblog.dto.ConversationDTO;
 import org.example.myblog.dto.MessageDTO;
 import org.example.myblog.dto.SendMessageRequest;
 import org.example.myblog.entiy.Conversation;
 import org.example.myblog.entiy.ConversationMember;
 import org.example.myblog.entiy.Message;
+import org.example.myblog.entiy.User;
 import org.example.myblog.mapper.ConversationMapper;
 import org.example.myblog.mapper.ConversationMemberMapper;
 import org.example.myblog.mapper.MessageMapper;
@@ -41,6 +43,14 @@ public class ChatServiceImpl implements ChatService {
 
     private static final String LAST_MSG_KEY_PREFIX = "conv:last_msg:";
     private static final String UNREAD_KEY_PREFIX = "unread:";
+
+    private static final String SYSTEM_WELCOME_TEXT = "欢迎来到社区！重要通知与活动会在此发布。";
+
+    /** 数据库中 user.username = 「系统聊天」的系统账号 id，运行时解析，勿写死 id */
+    private Long getSystemChatUserId() {
+        User u = userMapper.selectByUsername(UserConstants.SYSTEM_CHAT_USERNAME);
+        return u != null ? u.getId() : null;
+    }
 
     @Override
     @Transactional
@@ -86,6 +96,11 @@ public class ChatServiceImpl implements ChatService {
         }
         Long from = request.getFromUserId();
         Long to = request.getToUserId();
+        Long sysId = getSystemChatUserId();
+        if (sysId != null && to != null && to.equals(sysId) && !from.equals(sysId)) {
+            // 普通用户不可向系统私信账号发消息（仅展示运营推送）
+            return null;
+        }
         Long convId = request.getConversationId();
         if (convId == null && to != null) {
             convId = getOrCreateSingleConversation(from, to);
@@ -165,6 +180,7 @@ public class ChatServiceImpl implements ChatService {
                 if (pid instanceof Number) {
                     dto.setPeerId(((Number) pid).longValue());
                 }
+                dto.setPeerUsername((String) peerInfo.get("username"));
                 dto.setPeerName((String) peerInfo.get("name"));
                 dto.setPeerAvatar((String) peerInfo.get("avatarUrl"));
             }
@@ -190,7 +206,57 @@ public class ChatServiceImpl implements ChatService {
 
             result.add(dto);
         }
-        return result;
+        // 系统私信会话（对端用户名为「系统聊天」）固定排在最前
+        List<ConversationDTO> ordered = new ArrayList<>();
+        for (ConversationDTO d : result) {
+            if (UserConstants.isReservedSystemChatName(d.getPeerUsername())) {
+                ordered.add(d);
+            }
+        }
+        for (ConversationDTO d : result) {
+            if (!UserConstants.isReservedSystemChatName(d.getPeerUsername())) {
+                ordered.add(d);
+            }
+        }
+        return ordered;
+    }
+
+    @Override
+    @Transactional
+    public void ensureSystemConversationForUser(Long userId) {
+        if (userId == null) {
+            return;
+        }
+        Long systemUserId = getSystemChatUserId();
+        if (systemUserId == null) {
+            return;
+        }
+        if (userId.equals(systemUserId)) {
+            return;
+        }
+        Long convId = getOrCreateSingleConversation(userId, systemUserId);
+        if (convId == null) {
+            return;
+        }
+        Message last = messageMapper.selectLastMessage(convId);
+        if (last != null) {
+            return;
+        }
+        Message msg = new Message();
+        msg.setConversationId(convId);
+        msg.setSenderId(systemUserId);
+        msg.setContentType(0);
+        msg.setContent(SYSTEM_WELCOME_TEXT);
+        msg.setStatus(0);
+        msg.setCreatedAt(LocalDateTime.now());
+        messageMapper.insert(msg);
+        conversationMapper.touch(convId, msg.getCreatedAt());
+        if (redisTemplate != null) {
+            try {
+                redisTemplate.opsForValue().set(LAST_MSG_KEY_PREFIX + convId, msg.getContent());
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     @Override

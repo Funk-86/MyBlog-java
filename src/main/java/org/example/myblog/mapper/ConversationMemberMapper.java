@@ -55,6 +55,7 @@ public interface ConversationMemberMapper {
      */
     @Select("""
             SELECT u.id,
+                   u.username                        AS username,
                    COALESCE(up.nickname, u.username) AS name,
                    up.avatar_url                     AS avatarUrl
             FROM conversation_member m

@@ -1,5 +1,6 @@
 package org.example.myblog.controller;
 
+import org.example.myblog.constant.UserConstants;
 import org.example.myblog.dto.FollowUserDTO;
 import org.example.myblog.mapper.UserMapper;
 
@@ -309,6 +310,9 @@ public class UserController {
                                 @RequestParam(value = "nickname", required = false) String nickname,
                                 @RequestParam(value = "bio", required = false) String bio,
                                 @RequestParam(value = "gender", required = false) Integer gender) {
+        if (nickname != null && UserConstants.isReservedSystemChatName(nickname)) {
+            return "reserved";
+        }
         int n = userProfileMapper.upsertProfile(userId, nickname, bio, gender);
         return n > 0 ? "ok" : "fail";
     }

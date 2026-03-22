@@ -1,5 +1,6 @@
 package org.example.myblog.serverl.impl;
 
+import org.example.myblog.constant.UserConstants;
 import org.example.myblog.dto.FollowUserDTO;
 import org.example.myblog.dto.UserSpaceDTO;
 import org.example.myblog.entiy.User;
@@ -65,6 +66,7 @@ public class UserServiceImpl implements UserService {
         if (username == null || username.trim().isEmpty()) return null;
         if (email == null || email.trim().isEmpty()) return null;
         if (rawPassword == null || rawPassword.isEmpty()) return null;
+        if (UserConstants.isReservedSystemChatName(username)) return null;
         if (userMapper.selectByUsername(username.trim()) != null) return null;
         if (userMapper.selectByEmail(email.trim()) != null) return null;
         User user = new User();
