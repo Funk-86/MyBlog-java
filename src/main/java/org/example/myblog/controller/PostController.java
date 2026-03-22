@@ -66,6 +66,14 @@ public class PostController {
     @Value("${video.upload.ffmpeg-bin:ffmpeg}")
     private String ffmpegBin;
 
+    @Value("${upload.base-path:.}")
+    private String uploadBasePath;
+
+    private Path resolveUploadDir(String subdir) {
+        Path base = Paths.get(uploadBasePath == null || uploadBasePath.isEmpty() ? "." : uploadBasePath).toAbsolutePath().normalize();
+        return base.resolve(subdir);
+    }
+
     private static volatile Boolean FFMPEG_AVAILABLE = null;
 
     private boolean isFfmpegAvailable() {
@@ -438,7 +446,7 @@ public class PostController {
         if (file.isEmpty()) {
             return "";
         }
-        Path uploadDir = Paths.get("post_img").toAbsolutePath().normalize();
+        Path uploadDir = resolveUploadDir("post_img");
         Files.createDirectories(uploadDir);
         String original = file.getOriginalFilename();
         String ext = "";
@@ -463,7 +471,7 @@ public class PostController {
         if (file.isEmpty()) {
             return "";
         }
-        Path uploadDir = Paths.get("post_video").toAbsolutePath().normalize();
+        Path uploadDir = resolveUploadDir("post_video");
         Files.createDirectories(uploadDir);
 
         long ratedBytes = Math.max(1L, videoRatedSizeMb) * 1024L * 1024L;

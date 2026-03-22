@@ -18,7 +18,10 @@ import org.example.myblog.serverl.PostService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -70,6 +73,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired(required = false)
     private ContentModerationService contentModerationService;
+
+    @Autowired(required = false)
+    private PlatformTransactionManager transactionManager;
 
     @Override
     public Post createPost(Long userId,
@@ -371,12 +377,28 @@ public class PostServiceImpl implements PostService {
     private void sendSystemNotify(Long toUserId, String content) {
         if (chatService == null || toUserId == null || content == null || content.isBlank()) return;
         try {
-            SendMessageRequest req = new SendMessageRequest();
-            req.setFromUserId(SYSTEM_ADMIN_ID);
-            req.setToUserId(toUserId);
-            req.setContent(content);
-            req.setContentType(0);
-            chatService.sendMessage(req);
+            Long to = toUserId;
+            String text = content;
+            if (transactionManager != null) {
+                // 在独立事务中发送，避免 sendMessage 失败导致 approvePost 事务被标记 rollback-only
+                TransactionTemplate tt = new TransactionTemplate(transactionManager);
+                tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                tt.executeWithoutResult(status -> {
+                    SendMessageRequest req = new SendMessageRequest();
+                    req.setFromUserId(SYSTEM_ADMIN_ID);
+                    req.setToUserId(to);
+                    req.setContent(text);
+                    req.setContentType(0);
+                    chatService.sendMessage(req);
+                });
+            } else {
+                SendMessageRequest req = new SendMessageRequest();
+                req.setFromUserId(SYSTEM_ADMIN_ID);
+                req.setToUserId(to);
+                req.setContent(text);
+                req.setContentType(0);
+                chatService.sendMessage(req);
+            }
         } catch (Exception ignored) {
         }
     }

@@ -16,6 +16,7 @@ import org.example.myblog.mapper.UserProfileMapper;
 import org.example.myblog.serverl.EmailCodeService;
 import org.example.myblog.serverl.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,6 +37,9 @@ import java.util.UUID;
 @Controller
 @RequestMapping("/user")
 public class UserController {
+
+    @Value("${upload.base-path:.}")
+    private String uploadBasePath;
 
     @Autowired
     private UserService userService;
@@ -324,8 +328,9 @@ public class UserController {
             return "";
         }
 
-        // 保存到项目根目录下的 user_img 目录
-        Path uploadDir = Paths.get("user_img").toAbsolutePath().normalize();
+        // 保存到上传根目录下的 user_img（Zeabur 可设 UPLOAD_BASE_PATH=/tmp）
+        Path base = Paths.get(uploadBasePath == null || uploadBasePath.isEmpty() ? "." : uploadBasePath).toAbsolutePath().normalize();
+        Path uploadDir = base.resolve("user_img");
         Files.createDirectories(uploadDir);
 
         String originalFilename = file.getOriginalFilename();
