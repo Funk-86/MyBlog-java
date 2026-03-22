@@ -50,9 +50,9 @@ public class ChatServiceImpl implements ChatService {
 
     private static final String SYSTEM_WELCOME_TEXT = "欢迎来到社区！重要通知与活动会在此发布。";
 
-    /** 数据库中 user.username = 「系统聊天」的系统账号 id，运行时解析，勿写死 id */
+    /** 数据库中 user.username = 「系统通知」的系统账号 id，运行时解析，勿写死 id */
     private Long getSystemChatUserId() {
-        User u = userMapper.selectByUsername(UserConstants.SYSTEM_CHAT_USERNAME);
+        User u = userMapper.selectByUsername(UserConstants.SYSTEM_NOTICE_USERNAME);
         return u != null ? u.getId() : null;
     }
 
@@ -210,15 +210,15 @@ public class ChatServiceImpl implements ChatService {
 
             result.add(dto);
         }
-        // 系统私信会话（对端用户名为「系统聊天」）固定排在最前
+        // 系统私信会话（对端用户名为「系统通知」）固定排在最前
         List<ConversationDTO> ordered = new ArrayList<>();
         for (ConversationDTO d : result) {
-            if (UserConstants.isReservedSystemChatName(d.getPeerUsername())) {
+            if (UserConstants.isReservedSystemNoticeName(d.getPeerUsername())) {
                 ordered.add(d);
             }
         }
         for (ConversationDTO d : result) {
-            if (!UserConstants.isReservedSystemChatName(d.getPeerUsername())) {
+            if (!UserConstants.isReservedSystemNoticeName(d.getPeerUsername())) {
                 ordered.add(d);
             }
         }
@@ -242,7 +242,7 @@ public class ChatServiceImpl implements ChatService {
         if (systemUserId == null) {
             log.warn(
                     "未找到系统私信账号：请在数据库中插入 user.username='{}' 的用户（见 sql/system_notice_user.sql），否则聊天列表不会出现「系统通知」",
-                    UserConstants.SYSTEM_CHAT_USERNAME);
+                    UserConstants.SYSTEM_NOTICE_USERNAME);
             return;
         }
         if (userId.equals(systemUserId)) {

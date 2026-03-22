@@ -66,7 +66,7 @@ public class UserServiceImpl implements UserService {
         if (username == null || username.trim().isEmpty()) return null;
         if (email == null || email.trim().isEmpty()) return null;
         if (rawPassword == null || rawPassword.isEmpty()) return null;
-        if (UserConstants.isReservedSystemChatName(username)) return null;
+        if (UserConstants.isReservedSystemNoticeName(username)) return null;
         if (userMapper.selectByUsername(username.trim()) != null) return null;
         if (userMapper.selectByEmail(email.trim()) != null) return null;
         User user = new User();

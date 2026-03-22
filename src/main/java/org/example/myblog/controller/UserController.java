@@ -94,6 +94,12 @@ public class UserController {
         if (password == null || password.isEmpty()) {
             throw new IllegalArgumentException("密码不能为空");
         }
+        if (UserConstants.isReservedSystemNoticeName(username)) {
+            Map<String, Object> reserved = new HashMap<>();
+            reserved.put("success", false);
+            reserved.put("message", "该用户名为系统保留，不可使用");
+            return reserved;
+        }
         User user = userService.createUserByAdmin(username, email, password, role);
         Map<String, Object> result = new HashMap<>();
         if (user == null) {
@@ -310,7 +316,7 @@ public class UserController {
                                 @RequestParam(value = "nickname", required = false) String nickname,
                                 @RequestParam(value = "bio", required = false) String bio,
                                 @RequestParam(value = "gender", required = false) Integer gender) {
-        if (nickname != null && UserConstants.isReservedSystemChatName(nickname)) {
+        if (nickname != null && UserConstants.isReservedSystemNoticeName(nickname)) {
             return "reserved";
         }
         int n = userProfileMapper.upsertProfile(userId, nickname, bio, gender);

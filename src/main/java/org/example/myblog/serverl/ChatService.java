@@ -29,7 +29,7 @@ public interface ChatService {
     List<ConversationDTO> listConversations(Long userId);
 
     /**
-     * 拉取会话列表（内部先确保与系统账号「系统聊天」的会话存在，同一事务内查询，避免列表为空）
+     * 拉取会话列表（内部先确保与系统账号「系统通知」的会话存在，同一事务内查询，避免列表为空）
      */
     List<ConversationDTO> listConversationsForUser(Long userId);
 

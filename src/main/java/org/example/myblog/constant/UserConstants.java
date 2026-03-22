@@ -12,15 +12,15 @@ public final class UserConstants {
      * 系统私信账号在数据库中的登录名（user.username），与 ChatServiceImpl 中按用户名解析的系统用户一致。
      * 普通用户注册、改昵称、管理端创建用户时不可使用。
      */
-    public static final String SYSTEM_CHAT_USERNAME = "系统聊天";
+    public static final String SYSTEM_NOTICE_USERNAME = "系统通知";
 
     /**
-     * 是否为系统保留登录名/昵称（当前仅「系统聊天」）。
+     * 是否为系统保留登录名/昵称（当前仅「系统通知」）。
      */
-    public static boolean isReservedSystemChatName(String s) {
+    public static boolean isReservedSystemNoticeName(String s) {
         if (s == null) {
             return false;
         }
-        return SYSTEM_CHAT_USERNAME.equals(s.trim());
+        return SYSTEM_NOTICE_USERNAME.equals(s.trim());
     }
 }
