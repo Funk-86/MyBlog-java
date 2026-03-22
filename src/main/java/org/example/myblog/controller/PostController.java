@@ -188,6 +188,16 @@ public class PostController {
     }
 
     /**
+     * 管理端：帖子详情（不计浏览量）
+     * GET /post/admin/detail?id=1
+     */
+    @GetMapping("/admin/detail")
+    @ResponseBody
+    public Post adminDetail(@RequestParam("id") Long id) {
+        return postService.getPostDetail(id);
+    }
+
+    /**
      * 关键字搜索帖子
      * GET /post/search?keyword=xxx&page=1&size=20
      */
@@ -340,6 +350,19 @@ public class PostController {
     @ResponseBody
     public Map<String, Object> reject(@RequestParam("postId") Long postId) {
         postService.rejectPost(postId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        return result;
+    }
+
+    /**
+     * 管理端：删除帖子（软删除，不校验作者）
+     * POST /post/admin/delete?postId=1
+     */
+    @PostMapping("/admin/delete")
+    @ResponseBody
+    public Map<String, Object> adminDelete(@RequestParam("postId") Long postId) {
+        postService.adminDeletePost(postId);
         Map<String, Object> result = new HashMap<>();
         result.put("success", true);
         return result;

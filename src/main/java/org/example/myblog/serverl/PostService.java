@@ -77,6 +77,9 @@ public interface PostService {
     /** 删除帖子（仅作者可操作，软删除 status=2） */
     void deletePost(Long postId, Long userId);
 
+    /** 管理端删除帖子（软删除 status=2，不校验作者） */
+    void adminDeletePost(Long postId);
+
     /** 是否已赞该帖子 */
     boolean isPostLiked(Long postId, Long userId);
 

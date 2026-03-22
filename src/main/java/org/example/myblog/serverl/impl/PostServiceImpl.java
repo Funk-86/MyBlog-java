@@ -282,6 +282,15 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
+    @Transactional
+    public void adminDeletePost(Long postId) {
+        if (postId == null) return;
+        Post p = postMapper.selectById(postId);
+        if (p == null) return;
+        postMapper.updateStatus(postId, 2);
+    }
+
+    @Override
     public List<Post> listHotPosts(int page, int size) {
         return listHotPostsByCategory(null, page, size);
     }
