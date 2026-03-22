@@ -29,6 +29,11 @@ public interface ChatService {
     List<ConversationDTO> listConversations(Long userId);
 
     /**
+     * 拉取会话列表（内部先确保与系统账号「系统聊天」的会话存在，同一事务内查询，避免列表为空）
+     */
+    List<ConversationDTO> listConversationsForUser(Long userId);
+
+    /**
      * 确保当前用户与系统通知账号存在单聊会话，并在无消息时插入一条欢迎语（拉取会话列表前应调用）
      */
     void ensureSystemConversationForUser(Long userId);

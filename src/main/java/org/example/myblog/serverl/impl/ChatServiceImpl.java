@@ -15,6 +15,8 @@ import org.example.myblog.mapper.UserMapper;
 import org.example.myblog.serverl.ChatService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +27,8 @@ import java.util.Map;
 
 @Service
 public class ChatServiceImpl implements ChatService {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatServiceImpl.class);
 
     @Autowired
     private ConversationMapper conversationMapper;
@@ -223,12 +227,22 @@ public class ChatServiceImpl implements ChatService {
 
     @Override
     @Transactional
+    public List<ConversationDTO> listConversationsForUser(Long userId) {
+        ensureSystemConversationForUser(userId);
+        return listConversations(userId);
+    }
+
+    @Override
+    @Transactional
     public void ensureSystemConversationForUser(Long userId) {
         if (userId == null) {
             return;
         }
         Long systemUserId = getSystemChatUserId();
         if (systemUserId == null) {
+            log.warn(
+                    "未找到系统私信账号：请在数据库中插入 user.username='{}' 的用户（见 sql/system_notice_user.sql），否则聊天列表不会出现「系统通知」",
+                    UserConstants.SYSTEM_CHAT_USERNAME);
             return;
         }
         if (userId.equals(systemUserId)) {

@@ -58,8 +58,7 @@ public class ChatController {
     @GetMapping("/conversations")
     @ResponseBody
     public List<ConversationDTO> conversations(@RequestParam("userId") Long userId) {
-        chatService.ensureSystemConversationForUser(userId);
-        return chatService.listConversations(userId);
+        return chatService.listConversationsForUser(userId);
     }
 
     /**
