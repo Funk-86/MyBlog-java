@@ -28,6 +28,9 @@ public class AsyncConfig {
     @Value("${myblog.async.keep-alive-seconds:60}")
     private int keepAliveSeconds;
 
+    @Value("${myblog.ffmpeg.queue-capacity:20}")
+    private int ffmpegQueueCapacity;
+
     /**
      * 有界异步线程池：防止高峰期无限扩线程造成内存压力。
      * 被 @Async 使用（默认 Bean 名 taskExecutor）。
@@ -44,6 +47,24 @@ public class AsyncConfig {
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * ffmpeg 专用队列：单线程串行执行，限制同一时刻仅 1 个 ffmpeg 任务。
+     */
+    @Bean(name = "ffmpegExecutor")
+    public Executor ffmpegExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("myblog-ffmpeg-");
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(Math.max(5, ffmpegQueueCapacity));
+        // 队列满时由调用线程执行，保证任务不丢（同时自然限流）
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
         executor.initialize();
         return executor;
     }

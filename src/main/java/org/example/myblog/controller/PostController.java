@@ -5,6 +5,7 @@ import org.example.myblog.entiy.Post;
 import org.example.myblog.mapper.PostMapper;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
+import org.example.myblog.serverl.VideoProcessingService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
@@ -12,12 +13,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +37,9 @@ public class PostController {
 
     @Autowired
     private PostMapper postMapper;
+
+    @Autowired
+    private VideoProcessingService videoProcessingService;
 
     /**
      * 视频上传“额定大小”（超过后自动转码降画质）
@@ -91,55 +92,6 @@ public class PostController {
             }
         }
         return FFMPEG_AVAILABLE;
-    }
-
-    /**
-     * 后端自动从视频抽取首帧封面（用于前端未传 videoCoverUrl 的场景）。
-     * 返回形如 /post_img/xxx.jpg；失败返回 null（不中断发帖流程）。
-     */
-    private String tryGenerateVideoCover(String videoUrl) {
-        if (videoUrl == null || videoUrl.isBlank()) return null;
-        if (!isFfmpegAvailable()) return null;
-        try {
-            // videoUrl 可能是 /post_video/xxx.mp4 或完整 URL；仅取文件名，定位到本地上传目录
-            String fileName = Paths.get(videoUrl).getFileName() != null ? Paths.get(videoUrl).getFileName().toString() : null;
-            if (fileName == null || fileName.isBlank()) return null;
-            Path videoPath = resolveUploadDir("post_video").resolve(fileName).toAbsolutePath().normalize();
-            if (!Files.exists(videoPath) || Files.size(videoPath) <= 0) return null;
-
-            Path imageDir = resolveUploadDir("post_img");
-            Files.createDirectories(imageDir);
-            String coverName = UUID.randomUUID() + ".jpg";
-            Path coverPath = imageDir.resolve(coverName).toAbsolutePath().normalize();
-
-            ProcessBuilder pb = new ProcessBuilder(
-                    ffmpegBin,
-                    "-y",
-                    "-ss", "00:00:00",
-                    "-i", videoPath.toString(),
-                    "-frames:v", "1",
-                    "-q:v", "3",
-                    coverPath.toString()
-            );
-            pb.redirectErrorStream(true);
-            Path ffmpegLog = Files.createTempFile("ffmpeg-cover-", ".log");
-            pb.redirectOutput(ffmpegLog.toFile());
-
-            Process p = pb.start();
-            boolean finished = p.waitFor(Math.max(5, videoTranscodeTimeoutSeconds), TimeUnit.SECONDS);
-            if (!finished) {
-                try {
-                    p.destroyForcibly();
-                    p.waitFor(3, TimeUnit.SECONDS);
-                } catch (Exception ignore) {}
-                return null;
-            }
-            if (p.exitValue() != 0) return null;
-            if (!Files.exists(coverPath) || Files.size(coverPath) <= 0) return null;
-            return "/post_img/" + coverName;
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     /**
@@ -346,12 +298,7 @@ public class PostController {
     @ResponseBody
     public Object create(@RequestBody CreatePostRequest req) {
         try {
-            String effectiveCover = req.getVideoCoverUrl();
-            if ((effectiveCover == null || effectiveCover.isBlank())
-                    && req.getVideoUrl() != null && !req.getVideoUrl().isBlank()) {
-                effectiveCover = tryGenerateVideoCover(req.getVideoUrl());
-            }
-            return postService.createPostWithImages(
+            Post created = postService.createPostWithImages(
                     req.getUserId(),
                     req.getTitle(),
                     req.getContent(),
@@ -360,10 +307,16 @@ public class PostController {
                     req.getCategoryId2(),
                     req.getTopics(),
                     req.getVideoUrl(),
-                    effectiveCover,
+                    req.getVideoCoverUrl(),
                     req.getVideoDurationSeconds(),
                     req.getVisibility()
             );
+            boolean hasVideo = req.getVideoUrl() != null && !req.getVideoUrl().isBlank();
+            boolean hasCover = req.getVideoCoverUrl() != null && !req.getVideoCoverUrl().isBlank();
+            if (hasVideo && !hasCover && created != null && created.getId() != null && isFfmpegAvailable()) {
+                videoProcessingService.enqueueExtractFirstFrameCover(created.getId(), req.getVideoUrl());
+            }
+            return created;
         } catch (RuntimeException e) {
             if ("POST_FORBIDDEN".equals(e.getMessage())) {
                 Map<String, Object> result = new HashMap<>();
@@ -564,115 +517,12 @@ public class PostController {
         // fallback：永远能返回一个可用视频文件
         String fallbackFileName = UUID.randomUUID() + (ext != null && !ext.isBlank() ? ext : ".mp4");
         Path fallbackTarget = uploadDir.resolve(fallbackFileName);
-
-        // 未超过额定大小：直接保存原视频（不做转码）
-        if (!shouldTranscode) {
-            file.transferTo(fallbackTarget);
-            return "/post_video/" + fallbackFileName;
+        file.transferTo(fallbackTarget);
+        String videoUrl = "/post_video/" + fallbackFileName;
+        if (shouldTranscode && isFfmpegAvailable()) {
+            videoProcessingService.enqueueTranscode(videoUrl);
         }
-
-        // 超过额定大小：先检查 ffmpeg 是否可用
-        if (!isFfmpegAvailable()) {
-            System.err.println("[uploadVideo] ffmpeg not available, save original only: " + fallbackFileName);
-            file.transferTo(fallbackTarget);
-            return "/post_video/" + fallbackFileName;
-        }
-
-        // 超过额定大小且 ffmpeg 可用：只落盘一次到临时文件，再转码/回退
-        Path tmpInput = null;
-        Path transcodedTarget = null;
-        Path ffmpegLog = null;
-        try {
-            tmpInput = Files.createTempFile("video-upload-", ext != null && ext.startsWith(".") ? ext : ".mp4");
-            file.transferTo(tmpInput);
-
-            transcodedTarget = uploadDir.resolve(UUID.randomUUID() + ".mp4");
-
-            // 先把“原视频”回退文件落盘，确保即使转码等太久也能尽快返回可用 URL
-            // 注意：回退文件扩展名保持原扩展名，避免内容-扩展名不匹配导致无法播放
-            try {
-                Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-            } catch (Exception ignore) {}
-
-            String vf = "scale='if(gt(iw,ih)," + videoTranscodeMaxSide + ",-2)':'if(gt(iw,ih),-2," + videoTranscodeMaxSide + ")':force_original_aspect_ratio=decrease";
-            String crf = String.valueOf(videoTranscodeCrf);
-            String ab = String.valueOf(videoTranscodeAudioBitrateK) + "k";
-
-            ProcessBuilder pb = new ProcessBuilder(
-                    ffmpegBin,
-                    "-y",
-                    "-i",
-                    tmpInput.toAbsolutePath().toString(),
-                    "-vf",
-                    vf,
-                    "-c:v",
-                    "libx264",
-                    "-crf",
-                    crf,
-                    "-preset",
-                    "veryfast",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    ab,
-                    "-movflags",
-                    "+faststart",
-                    transcodedTarget.toAbsolutePath().toString()
-            );
-            pb.redirectErrorStream(true);
-            // 把 ffmpeg 输出落到文件，避免大量 stderr/stdout 写入导致进程阻塞
-            ffmpegLog = Files.createTempFile("ffmpeg-upload-", ".log");
-            pb.redirectOutput(ffmpegLog.toFile());
-
-            Process p = pb.start();
-
-            boolean finished = p.waitFor(videoTranscodeTimeoutSeconds, TimeUnit.SECONDS);
-            if (!finished) {
-                // 让客户端请求优先在“可控时间”内拿到响应：转码超时则回退原文件
-                try {
-                    p.destroyForcibly();
-                    p.waitFor(5, TimeUnit.SECONDS);
-                } catch (Exception ignore) {}
-                // 回退文件通常已存在；若不存在再补一次
-                if (!Files.exists(fallbackTarget) || Files.size(fallbackTarget) <= 0) {
-                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-                }
-                return "/post_video/" + fallbackFileName;
-            }
-
-            int exitCode = p.exitValue();
-            if (exitCode != 0) {
-                // 转码失败：回退保存临时文件内容到 fallbackTarget
-                if (!Files.exists(fallbackTarget) || Files.size(fallbackTarget) <= 0) {
-                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-                }
-                return "/post_video/" + fallbackFileName;
-            }
-
-            if (!Files.exists(transcodedTarget) || Files.size(transcodedTarget) <= 0) {
-                if (!Files.exists(fallbackTarget) || Files.size(fallbackTarget) <= 0) {
-                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-                }
-                return "/post_video/" + fallbackFileName;
-            }
-
-            return "/post_video/" + transcodedTarget.getFileName().toString();
-        } catch (Throwable t) {
-            // 转码报错：回退
-            try {
-                if (tmpInput != null && Files.exists(tmpInput)) {
-                    Files.copy(tmpInput, fallbackTarget, StandardCopyOption.REPLACE_EXISTING);
-                } else {
-                    // 最后兜底：尽量使用 transferTo
-                    file.transferTo(fallbackTarget);
-                }
-            } catch (Exception ignore) {}
-            return "/post_video/" + fallbackFileName;
-        } finally {
-            try {
-                if (tmpInput != null && Files.exists(tmpInput)) Files.deleteIfExists(tmpInput);
-            } catch (Exception ignore) {}
-        }
+        return videoUrl;
     }
 }
 
