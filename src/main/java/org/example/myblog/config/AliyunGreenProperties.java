@@ -30,6 +30,8 @@ public class AliyunGreenProperties {
     private int readTimeoutMs = 20000;
     /** 文本审核失败（网络类）时重试次数，含首次请求 */
     private int textMaxAttempts = 3;
+    /** 图片审核详细日志开关（关闭可显著减少日志量与内存抖动） */
+    private boolean imageVerboseLog = false;
 
     public String getAccessKeyId() {
         return accessKeyId;
@@ -113,6 +115,14 @@ public class AliyunGreenProperties {
 
     public void setTextMaxAttempts(int textMaxAttempts) {
         this.textMaxAttempts = textMaxAttempts;
+    }
+
+    public boolean isImageVerboseLog() {
+        return imageVerboseLog;
+    }
+
+    public void setImageVerboseLog(boolean imageVerboseLog) {
+        this.imageVerboseLog = imageVerboseLog;
     }
 }
 

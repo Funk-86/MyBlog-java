@@ -447,9 +447,9 @@ public class PostServiceImpl implements PostService {
         Set<Long> authorSet = new HashSet<>(authorIds);
         Set<Long> categorySet = new HashSet<>(categoryIds);
 
-        // 取较多候选再重排，保证分页有足够数据
-        int poolSize = Math.max(size * 5, 100);
-        if (poolSize > 300) poolSize = 300;
+        // 取适量候选再重排，控制峰值内存与排序开销
+        int poolSize = Math.max(size * 4, 80);
+        if (poolSize > 150) poolSize = 150;
         List<Post> candidates = postMapper.listByHotScore(0, poolSize);
         if (candidates.isEmpty()) return List.of();
 
