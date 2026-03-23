@@ -13,7 +13,6 @@ import com.aliyuncs.DefaultAcsClient;
 import com.aliyuncs.IAcsClient;
 import com.aliyuncs.profile.DefaultProfile;
 import com.aliyuncs.green.model.v20180509.ImageSyncScanRequest;
-import com.aliyuncs.green.model.v20180509.TextScanRequest;
 import com.aliyuncs.http.MethodType;
 import com.aliyun.green20220302.Client;
 import com.aliyun.green20220302.models.TextModerationPlusRequest;
@@ -21,6 +20,8 @@ import com.aliyun.green20220302.models.TextModerationPlusResponse;
 import com.aliyun.green20220302.models.TextModerationPlusResponseBody;
 import com.aliyun.teaopenapi.models.Config;
 
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
 import java.util.List;
 
 /**
@@ -45,14 +46,14 @@ public class AliyunGreenService {
     private ChatService chatService;
 
     private IAcsClient getClient() {
-        System.out.println("AliyunGreen AK=" + props.getAccessKeyId()
-                + ", SK=" + props.getAccessKeySecret()
-                + ", region=" + props.getRegionId());
         if (greenClient != null) return greenClient;
         synchronized (this) {
             if (greenClient != null) return greenClient;
-            // regionId 从 props 里拿，没配就用 cn-hangzhou
-            String regionId = props.getRegionId() != null ? props.getRegionId() : "cn-hangzhou";
+            String regionId = props.getRegionIdOrDefault();
+            String ak = props.getAccessKeyId();
+            String masked = (ak == null || ak.isBlank()) ? "(empty)" : ak.substring(0, Math.min(4, ak.length())) + "***";
+            System.out.println("[AliyunGreen] init image client region=" + regionId + " ak=" + masked
+                    + " connectTimeoutMs=" + props.getConnectTimeoutMs() + " readTimeoutMs=" + props.getReadTimeoutMs());
             DefaultProfile profile = DefaultProfile.getProfile(
                     regionId,
                     props.getAccessKeyId(),
@@ -67,18 +68,39 @@ public class AliyunGreenService {
         if (plusClient != null) return plusClient;
         synchronized (this) {
             if (plusClient != null) return plusClient;
+            int cto = props.getConnectTimeoutMs();
+            int rto = props.getReadTimeoutMs();
+            String regionId = props.getRegionIdOrDefault();
+            String ep = props.resolveGreenCipEndpointHost();
+            String ak = props.getAccessKeyId();
+            String masked = (ak == null || ak.isBlank()) ? "(empty)" : ak.substring(0, Math.min(4, ak.length())) + "***";
+            System.out.println("[AliyunGreen] init text Plus client region=" + regionId + " endpoint=" + ep + " ak=" + masked
+                    + " connectTimeoutMs=" + cto + " readTimeoutMs=" + rto);
             Config config = new Config()
                     .setAccessKeyId(props.getAccessKeyId())
                     .setAccessKeySecret(props.getAccessKeySecret())
-                    // 文本审核增强版默认在 cn-shanghai
-                    .setRegionId(props.getRegionId() != null ? props.getRegionId() : "cn-shanghai")
-                    .setEndpoint("green-cip.cn-shanghai.aliyuncs.com")
-                    // 示例里用 int，这里保持一致
-                    .setReadTimeout(6000)
-                    .setConnectTimeout(3000);
+                    .setRegionId(regionId)
+                    .setEndpoint(ep)
+                    .setReadTimeout(rto)
+                    .setConnectTimeout(cto);
             plusClient = new Client(config);
             return plusClient;
         }
+    }
+
+    /** 连接超时、DNS、TLS 等可重试；业务错误不重试由 checkTextOnce 内部 return */
+    private static boolean isLikelyTransientNetworkError(Throwable t) {
+        while (t != null) {
+            if (t instanceof SocketTimeoutException || t instanceof ConnectException) {
+                return true;
+            }
+            String msg = t.getMessage();
+            if (msg != null && (msg.contains("timed out") || msg.contains("Timed out") || msg.contains("Connection reset"))) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
 
@@ -89,88 +111,105 @@ public class AliyunGreenService {
      * @return 建议结果：pass / review / block
      */
     public String checkText(String content) {
-
         if (content == null || content.isBlank()) {
             return "pass";
         }
-        try {
-            Client client = getPlusClient();
-
-            // 文本审核增强版 PLUS：textModerationPlus
-            JSONObject serviceParameters = new JSONObject();
-            serviceParameters.put("content", content);
-
-            TextModerationPlusRequest request = new TextModerationPlusRequest();
-            // 检测类型：按控制台实际开通的服务名称修改
-            request.setService("comment_detection_pro");
-            request.setServiceParameters(serviceParameters.toJSONString());
-
-            TextModerationPlusResponse response = client.textModerationPlus(request);
-            if (response.getStatusCode() != 200) {
-                System.out.println("TextModerationPlus response not success. status=" + response.getStatusCode());
-                return "review";
-            }
-
-            TextModerationPlusResponseBody body = response.getBody();
-            System.out.println("TextModerationPlus body = " + JSON.toJSONString(body));
-
-            Integer code = body.getCode();
-            if (code == null || code != 200) {
-                System.out.println("text moderation not success. code=" + code);
-                return "review";
-            }
-
-            TextModerationPlusResponseBody.TextModerationPlusResponseBodyData data = body.getData();
-            System.out.println("TextModerationPlus data = " + JSON.toJSONString(data));
-            if (data == null) {
-                return "pass";
-            }
-
-            // 如果整体风险级别为 none，表示“未检测出风险”，直接通过
-            String overallRiskLevel = data.getRiskLevel();
-            System.out.println("TextModerationPlus overall riskLevel = " + overallRiskLevel);
-            if (overallRiskLevel != null && "none".equalsIgnoreCase(overallRiskLevel)) {
-                return "pass";
-            }
-
-            // 这里根据实际返回结构决定：data.getResult() 返回一个结果列表
-            java.util.List<TextModerationPlusResponseBody.TextModerationPlusResponseBodyDataResult> results =
-                    data.getResult();
-            if (results == null || results.isEmpty()) {
-                return "pass";
-            }
-
-            // 逐条结果判断 riskLevel，高风险直接 block，其余按 review 处理
-            boolean hasResult = false;
-            for (TextModerationPlusResponseBody.TextModerationPlusResponseBodyDataResult r : results) {
-                String json = JSON.toJSONString(r);
-                System.out.println("TextModerationPlus item = " + json);
-                hasResult = true;
-                try {
-                    JSONObject obj = JSON.parseObject(json);
-                    // 不同服务字段名可能不同，这里兼容几种常见写法
-                    String riskLevel = obj.getString("riskLevel");
-                    if (riskLevel == null) {
-                        riskLevel = obj.getString("risk_level");
+        int max = props.getTextMaxAttempts();
+        Exception last = null;
+        for (int attempt = 1; attempt <= max; attempt++) {
+            try {
+                return checkTextOnce(content);
+            } catch (Exception e) {
+                last = e;
+                if (attempt < max && isLikelyTransientNetworkError(e)) {
+                    System.err.println("[AliyunGreen] text moderation network error, attempt " + attempt + "/" + max + ": " + e.getMessage());
+                    try {
+                        Thread.sleep(500L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
                     }
-                    if (riskLevel != null) {
-                        System.out.println("TextModerationPlus riskLevel = " + riskLevel);
-                        if ("high".equalsIgnoreCase(riskLevel)
-                                || "HIGH_RISK".equalsIgnoreCase(riskLevel)) {
-                            // 高风险：直接 block
-                            return "block";
-                        }
-                    }
-                } catch (Exception ignore) {
-                    // 解析失败则退化为后面的 review 处理
+                } else {
+                    e.printStackTrace();
+                    return "review";
                 }
             }
-            // 有任何命中结果且未判定为高风险，按 review 处理
-            return hasResult ? "review" : "pass";
-        } catch (Exception e) {
-            e.printStackTrace();
+        }
+        if (last != null) {
+            last.printStackTrace();
+        }
+        return "review";
+    }
+
+    /**
+     * 单次调用文本审核；仅抛出网络/SDK 异常，业务层 code!=200 仍返回 review 字符串。
+     */
+    private String checkTextOnce(String content) throws Exception {
+        Client client = getPlusClient();
+
+        JSONObject serviceParameters = new JSONObject();
+        serviceParameters.put("content", content);
+
+        TextModerationPlusRequest request = new TextModerationPlusRequest();
+        request.setService("comment_detection_pro");
+        request.setServiceParameters(serviceParameters.toJSONString());
+
+        TextModerationPlusResponse response = client.textModerationPlus(request);
+        if (response.getStatusCode() != 200) {
+            System.out.println("TextModerationPlus response not success. status=" + response.getStatusCode());
             return "review";
         }
+
+        TextModerationPlusResponseBody body = response.getBody();
+        System.out.println("TextModerationPlus body = " + JSON.toJSONString(body));
+
+        Integer code = body.getCode();
+        if (code == null || code != 200) {
+            System.out.println("text moderation not success. code=" + code);
+            return "review";
+        }
+
+        TextModerationPlusResponseBody.TextModerationPlusResponseBodyData data = body.getData();
+        System.out.println("TextModerationPlus data = " + JSON.toJSONString(data));
+        if (data == null) {
+            return "pass";
+        }
+
+        String overallRiskLevel = data.getRiskLevel();
+        System.out.println("TextModerationPlus overall riskLevel = " + overallRiskLevel);
+        if (overallRiskLevel != null && "none".equalsIgnoreCase(overallRiskLevel)) {
+            return "pass";
+        }
+
+        java.util.List<TextModerationPlusResponseBody.TextModerationPlusResponseBodyDataResult> results =
+                data.getResult();
+        if (results == null || results.isEmpty()) {
+            return "pass";
+        }
+
+        boolean hasResult = false;
+        for (TextModerationPlusResponseBody.TextModerationPlusResponseBodyDataResult r : results) {
+            String json = JSON.toJSONString(r);
+            System.out.println("TextModerationPlus item = " + json);
+            hasResult = true;
+            try {
+                JSONObject obj = JSON.parseObject(json);
+                String riskLevel = obj.getString("riskLevel");
+                if (riskLevel == null) {
+                    riskLevel = obj.getString("risk_level");
+                }
+                if (riskLevel != null) {
+                    System.out.println("TextModerationPlus riskLevel = " + riskLevel);
+                    if ("high".equalsIgnoreCase(riskLevel)
+                            || "HIGH_RISK".equalsIgnoreCase(riskLevel)) {
+                        return "block";
+                    }
+                }
+            } catch (Exception ignore) {
+                // 解析失败则退化为后面的 review 处理
+            }
+        }
+        return hasResult ? "review" : "pass";
     }
 
     public AliyunGreenService(AliyunGreenProperties props, PostMapper postMapper) {
@@ -194,8 +233,8 @@ public class AliyunGreenService {
             ImageSyncScanRequest request = new ImageSyncScanRequest();
             // 旧版 SDK 使用 setMethod，而不是 setSysMethod
             request.setMethod(MethodType.POST);
-            request.setConnectTimeout(3000);
-            request.setReadTimeout(10000);
+            request.setConnectTimeout(props.getConnectTimeoutMs());
+            request.setReadTimeout(props.getReadTimeoutMs());
 
             // scenes：按你控制台开通的场景来，这里举例涉黄+暴恐
             JSONArray scenes = new JSONArray();
