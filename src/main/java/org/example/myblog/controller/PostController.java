@@ -94,6 +94,55 @@ public class PostController {
     }
 
     /**
+     * 后端自动从视频抽取首帧封面（用于前端未传 videoCoverUrl 的场景）。
+     * 返回形如 /post_img/xxx.jpg；失败返回 null（不中断发帖流程）。
+     */
+    private String tryGenerateVideoCover(String videoUrl) {
+        if (videoUrl == null || videoUrl.isBlank()) return null;
+        if (!isFfmpegAvailable()) return null;
+        try {
+            // videoUrl 可能是 /post_video/xxx.mp4 或完整 URL；仅取文件名，定位到本地上传目录
+            String fileName = Paths.get(videoUrl).getFileName() != null ? Paths.get(videoUrl).getFileName().toString() : null;
+            if (fileName == null || fileName.isBlank()) return null;
+            Path videoPath = resolveUploadDir("post_video").resolve(fileName).toAbsolutePath().normalize();
+            if (!Files.exists(videoPath) || Files.size(videoPath) <= 0) return null;
+
+            Path imageDir = resolveUploadDir("post_img");
+            Files.createDirectories(imageDir);
+            String coverName = UUID.randomUUID() + ".jpg";
+            Path coverPath = imageDir.resolve(coverName).toAbsolutePath().normalize();
+
+            ProcessBuilder pb = new ProcessBuilder(
+                    ffmpegBin,
+                    "-y",
+                    "-ss", "00:00:00",
+                    "-i", videoPath.toString(),
+                    "-frames:v", "1",
+                    "-q:v", "3",
+                    coverPath.toString()
+            );
+            pb.redirectErrorStream(true);
+            Path ffmpegLog = Files.createTempFile("ffmpeg-cover-", ".log");
+            pb.redirectOutput(ffmpegLog.toFile());
+
+            Process p = pb.start();
+            boolean finished = p.waitFor(Math.max(5, videoTranscodeTimeoutSeconds), TimeUnit.SECONDS);
+            if (!finished) {
+                try {
+                    p.destroyForcibly();
+                    p.waitFor(3, TimeUnit.SECONDS);
+                } catch (Exception ignore) {}
+                return null;
+            }
+            if (p.exitValue() != 0) return null;
+            if (!Files.exists(coverPath) || Files.size(coverPath) <= 0) return null;
+            return "/post_img/" + coverName;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * 管理端：待审核帖子列表（status=1）
      * GET /post/admin/pending?page=1&size=20
      */
@@ -297,6 +346,11 @@ public class PostController {
     @ResponseBody
     public Object create(@RequestBody CreatePostRequest req) {
         try {
+            String effectiveCover = req.getVideoCoverUrl();
+            if ((effectiveCover == null || effectiveCover.isBlank())
+                    && req.getVideoUrl() != null && !req.getVideoUrl().isBlank()) {
+                effectiveCover = tryGenerateVideoCover(req.getVideoUrl());
+            }
             return postService.createPostWithImages(
                     req.getUserId(),
                     req.getTitle(),
@@ -306,7 +360,7 @@ public class PostController {
                     req.getCategoryId2(),
                     req.getTopics(),
                     req.getVideoUrl(),
-                    req.getVideoCoverUrl(),
+                    effectiveCover,
                     req.getVideoDurationSeconds(),
                     req.getVisibility()
             );
