@@ -225,6 +225,7 @@ public class AliyunGreenService {
      */
     public String checkImages(List<String> imageUrls) {
         if (imageUrls == null || imageUrls.isEmpty()) {
+            System.out.println("[AliyunGreen][image] skip: no images, suggestion=pass");
             return "pass";
         }
         try {
@@ -251,8 +252,10 @@ public class AliyunGreenService {
                 tasks.add(task);
             }
             if (tasks.isEmpty()) {
+                System.out.println("[AliyunGreen][image] skip: all image urls blank, suggestion=pass");
                 return "pass";
             }
+            System.out.println("[AliyunGreen][image] begin check, totalImages=" + tasks.size() + ", scenes=" + scenes);
 
             JSONObject body = new JSONObject();
             body.put("scenes", scenes);
@@ -266,29 +269,59 @@ public class AliyunGreenService {
 
             com.aliyuncs.http.HttpResponse response = client.doAction(request);
             if (!response.isSuccess()) {
+                System.err.println("[AliyunGreen][image] doAction not success, httpStatus=" + response.getStatus());
                 return "review";
             }
 
             JSONObject resp = JSON.parseObject(new String(response.getHttpContent(), java.nio.charset.StandardCharsets.UTF_8));
             if (resp.getIntValue("code") != 200) {
+                System.err.println("[AliyunGreen][image] response code != 200, code=" + resp.getIntValue("code")
+                        + ", msg=" + resp.getString("msg"));
                 return "review";
             }
 
             JSONArray data = resp.getJSONArray("data");
             if (data == null || data.isEmpty()) {
+                System.out.println("[AliyunGreen][image] empty data, suggestion=pass");
                 return "pass";
             }
 
             boolean hasReview = false;
             for (int i = 0; i < data.size(); i++) {
                 JSONObject taskResult = data.getJSONObject(i);
-                if (taskResult.getIntValue("code") != 200) continue;
+                String taskDataId = taskResult.getString("dataId");
+                String taskUrl = taskResult.getString("url");
+                int taskCode = taskResult.getIntValue("code");
+                String taskMsg = taskResult.getString("msg");
+                if (taskCode != 200) {
+                    System.err.println("[AliyunGreen][image] task not success, dataId=" + taskDataId
+                            + ", url=" + taskUrl + ", code=" + taskCode + ", msg=" + taskMsg);
+                    hasReview = true;
+                    continue;
+                }
                 JSONArray results = taskResult.getJSONArray("results");
-                if (results == null) continue;
+                if (results == null || results.isEmpty()) {
+                    System.out.println("[AliyunGreen][image] task has no scene results, dataId=" + taskDataId
+                            + ", url=" + taskUrl + ", suggestion=pass");
+                    continue;
+                }
                 for (int j = 0; j < results.size(); j++) {
                     JSONObject sceneResult = results.getJSONObject(j);
                     String suggestion = sceneResult.getString("suggestion");
+                    String scene = sceneResult.getString("scene");
+                    String label = sceneResult.getString("label");
+                    Object rate = sceneResult.get("rate");
+                    String reason = sceneResult.getString("results");
+                    if (reason == null) reason = sceneResult.getString("detail");
+                    System.out.println("[AliyunGreen][image] scene result: dataId=" + taskDataId
+                            + ", url=" + taskUrl
+                            + ", scene=" + scene
+                            + ", suggestion=" + suggestion
+                            + ", label=" + label
+                            + ", rate=" + rate
+                            + (reason != null ? ", detail=" + reason : ""));
                     if ("block".equalsIgnoreCase(suggestion)) {
+                        System.out.println("[AliyunGreen][image] finalSuggestion=block, hit dataId=" + taskDataId + ", url=" + taskUrl);
                         return "block";
                     }
                     if ("review".equalsIgnoreCase(suggestion)) {
@@ -296,8 +329,10 @@ public class AliyunGreenService {
                     }
                 }
             }
+            System.out.println("[AliyunGreen][image] finalSuggestion=" + (hasReview ? "review" : "pass"));
             return hasReview ? "review" : "pass";
         } catch (Exception e) {
+            System.err.println("[AliyunGreen][image] exception, fallback suggestion=review, err=" + e.getMessage());
             return "review";
         }
     }
