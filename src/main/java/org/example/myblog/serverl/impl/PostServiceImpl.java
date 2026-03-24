@@ -15,6 +15,7 @@ import org.example.myblog.mapper.UserMapper;
 import org.example.myblog.serverl.ChatService;
 import org.example.myblog.serverl.AliyunGreenService;
 import org.example.myblog.serverl.ContentModerationService;
+import org.example.myblog.serverl.PostBehaviorService;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,6 +79,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired(required = false)
     private UserMapper userMapper;
+
+    @Autowired(required = false)
+    private PostBehaviorService postBehaviorService;
 
     private Long resolveSystemNoticeUserId() {
         if (userMapper == null) return null;
@@ -611,7 +615,7 @@ public class PostServiceImpl implements PostService {
             return listRecommended(userId, 1, size);
         }
 
-        String cacheKey = "post:related:" + postId + ":" + (userId == null ? 0 : userId);
+        String cacheKey = "post:related:v2:" + postId + ":" + (userId == null ? 0 : userId);
         List<Post> cached = getCachedRelated(cacheKey, size);
         if (!cached.isEmpty()) return cached;
 
@@ -628,6 +632,21 @@ public class PostServiceImpl implements PostService {
         Set<Long> seen = new HashSet<>();
         List<Post> merged = new ArrayList<>();
         seen.add(postId);
+        Map<Long, Double> behaviorScoreMap = new HashMap<>();
+
+        // 0) 协同过滤（看了这篇的人也看了）
+        if (postBehaviorService != null) {
+            Map<Long, Double> coView = postBehaviorService.listAlsoViewedScores(postId, Math.max(size * 4, 20));
+            if (!coView.isEmpty()) {
+                List<Post> behaviorCandidates = new ArrayList<>();
+                for (Long rid : coView.keySet()) {
+                    Post p = postMapper.selectDetailById(rid);
+                    if (p != null) behaviorCandidates.add(p);
+                }
+                appendFiltered(merged, behaviorCandidates, seen);
+                behaviorScoreMap.putAll(coView);
+            }
+        }
 
         // 1) 同话题
         List<String> topics = new ArrayList<>();
@@ -650,8 +669,8 @@ public class PostServiceImpl implements PostService {
             appendFiltered(merged, postMapper.listByHotScoreWithCategory(current.getCategoryId2(), 0, pool / 2), seen);
         }
 
-        // 3) 标题关键词（1-2 个）
-        List<String> keywords = extractKeywords(current.getTitle(), topics);
+        // 3) 标题/摘要关键词（1-3 个）
+        List<String> keywords = extractKeywords(current.getTitle(), current.getContent(), topics);
         for (String kw : keywords) {
             if (kw == null || kw.isBlank()) continue;
             appendFiltered(merged, postMapper.searchByKeyword(kw, 0, pool / 2), seen);
@@ -662,7 +681,7 @@ public class PostServiceImpl implements PostService {
             appendFiltered(merged, listRecommended(userId, 1, Math.max(size * 3, 20)), seen);
         }
 
-        List<Post> ranked = rankRelated(current, topics, merged);
+        List<Post> ranked = rankRelated(current, topics, merged, behaviorScoreMap);
         List<Post> result = ranked.size() > size ? ranked.subList(0, size) : ranked;
         cacheRelated(cacheKey, result);
         return result;
@@ -701,25 +720,25 @@ public class PostServiceImpl implements PostService {
         }
     }
 
-    private List<String> extractKeywords(String title, List<String> topics) {
+    private List<String> extractKeywords(String title, String summary, List<String> topics) {
         LinkedHashSet<String> set = new LinkedHashSet<>();
         if (topics != null) {
             for (String t : topics) {
                 if (t != null && !t.isBlank()) set.add(t.trim());
-                if (set.size() >= 2) break;
+                if (set.size() >= 3) break;
             }
         }
-        String s = title == null ? "" : title.trim();
+        String s = ((title == null ? "" : title) + " " + (summary == null ? "" : summary)).trim();
         if (!s.isBlank()) {
             try {
                 java.util.regex.Matcher m = java.util.regex.Pattern.compile("[\\u4e00-\\u9fa5]{2,6}").matcher(s);
-                while (m.find() && set.size() < 2) {
+                while (m.find() && set.size() < 3) {
                     set.add(m.group());
                 }
             } catch (Exception ignored) {
             }
             for (String w : s.split("\\s+")) {
-                if (set.size() >= 2) break;
+                if (set.size() >= 3) break;
                 if (w == null) continue;
                 String v = w.trim();
                 if (v.length() >= 2 && v.length() <= 12) set.add(v);
@@ -728,7 +747,7 @@ public class PostServiceImpl implements PostService {
         return new ArrayList<>(set);
     }
 
-    private List<Post> rankRelated(Post current, List<String> topics, List<Post> candidates) {
+    private List<Post> rankRelated(Post current, List<String> topics, List<Post> candidates, Map<Long, Double> behaviorScoreMap) {
         if (candidates == null || candidates.isEmpty()) return List.of();
         Set<String> topicSet = new HashSet<>();
         if (topics != null) {
@@ -740,14 +759,18 @@ public class PostServiceImpl implements PostService {
         Long c2 = current.getCategoryId2();
         long nowMs = System.currentTimeMillis();
 
-        candidates.sort(Comparator.comparingDouble((Post p) -> scoreRelated(p, topicSet, c1, c2, nowMs)).reversed());
+        candidates.sort(Comparator.comparingDouble((Post p) -> scoreRelated(p, topicSet, c1, c2, nowMs, behaviorScoreMap)).reversed());
         return candidates;
     }
 
-    private double scoreRelated(Post p, Set<String> topicSet, Long c1, Long c2, long nowMs) {
+    private double scoreRelated(Post p, Set<String> topicSet, Long c1, Long c2, long nowMs, Map<Long, Double> behaviorScoreMap) {
         if (p == null) return 0;
         double score = 0;
         if (p.getHotScore() != null) score += p.getHotScore();
+        if (behaviorScoreMap != null && p.getId() != null) {
+            // 协同过滤信号权重更高，用于“看了这篇的人也看了”
+            score += behaviorScoreMap.getOrDefault(p.getId(), 0.0) * 120.0;
+        }
         if (p.getCreatedAt() != null) {
             long createdMs = p.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
             long days = Math.max(0, (nowMs - createdMs) / (24L * 3600_000L));
