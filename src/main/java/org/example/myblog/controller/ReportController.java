@@ -1,11 +1,13 @@
 package org.example.myblog.controller;
 
+import org.example.myblog.constant.UserConstants;
 import org.example.myblog.dto.SendMessageRequest;
 import org.example.myblog.entiy.Comment;
 import org.example.myblog.entiy.Post;
 import org.example.myblog.mapper.CommentMapper;
 import org.example.myblog.mapper.PostMapper;
 import org.example.myblog.mapper.ReportMapper;
+import org.example.myblog.mapper.UserMapper;
 import org.example.myblog.serverl.ChatService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -27,9 +29,6 @@ import java.util.Map;
 @RequestMapping("/report")
 public class ReportController {
 
-    /** 管理员用户 ID（用于接收举报审核提醒 / 作为系统通知账号） */
-    private static final long ADMIN_USER_ID = 6L;
-
     @Autowired
     private ReportMapper reportMapper;
 
@@ -41,6 +40,19 @@ public class ReportController {
 
     @Autowired(required = false)
     private ChatService chatService;
+
+    @Autowired(required = false)
+    private UserMapper userMapper;
+
+    private Long resolveSystemNoticeUserId() {
+        if (userMapper == null) return null;
+        try {
+            var u = userMapper.selectByUsername(UserConstants.SYSTEM_NOTICE_USERNAME);
+            return u != null ? u.getId() : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 
     /**
      * 管理端：举报列表
@@ -154,6 +166,7 @@ public class ReportController {
         Long reporterId = r.get("reporter_id") instanceof Number
                 ? ((Number) r.get("reporter_id")).longValue()
                 : null;
+        Long adminId = resolveSystemNoticeUserId();
         if (targetType == null || targetId == null) {
             Map<String, Object> err = new HashMap<>();
             err.put("success", false);
@@ -176,7 +189,7 @@ public class ReportController {
                 if (reporterId != null) {
                     try {
                         SendMessageRequest req = new SendMessageRequest();
-                        req.setFromUserId(ADMIN_USER_ID);
+                        req.setFromUserId(adminId);
                         req.setToUserId(reporterId);
                         req.setContent("举报成功");
                         req.setContentType(0);
@@ -186,7 +199,7 @@ public class ReportController {
                 if (postAuthorId != null && !postAuthorId.equals(reporterId)) {
                     try {
                         SendMessageRequest req = new SendMessageRequest();
-                        req.setFromUserId(ADMIN_USER_ID);
+                        req.setFromUserId(adminId);
                         req.setToUserId(postAuthorId);
                         req.setContent("你的帖子被人举报，经审核后，违反社区公告，现已下架你的帖子");
                         req.setContentType(0);
@@ -226,7 +239,7 @@ public class ReportController {
                 if (reporterId != null) {
                     try {
                         SendMessageRequest req = new SendMessageRequest();
-                        req.setFromUserId(ADMIN_USER_ID);
+                        req.setFromUserId(adminId);
                         req.setToUserId(reporterId);
                         req.setContent("举报成功");
                         req.setContentType(0);
@@ -237,7 +250,7 @@ public class ReportController {
                 if (commentAuthorId != null && !commentAuthorId.equals(reporterId)) {
                     try {
                         SendMessageRequest req = new SendMessageRequest();
-                        req.setFromUserId(ADMIN_USER_ID);
+                        req.setFromUserId(adminId);
                         req.setToUserId(commentAuthorId);
                         req.setContent("你的评论被人举报，经审核后，违反社区公告，现已删除该评论");
                         req.setContentType(0);
@@ -297,6 +310,8 @@ public class ReportController {
 
     private void sendUserReportCreatedNotify(Long reporterId, int targetType, long targetId) {
         if (chatService == null || reporterId == null) return;
+        Long adminId = resolveSystemNoticeUserId();
+        if (adminId == null) return;
         String typeStr = switch (targetType) {
             case 1 -> "用户";
             case 2 -> "帖子";
@@ -306,7 +321,7 @@ public class ReportController {
         String content = "您已成功举报" + typeStr + "（ID=" + targetId + "），我们已收到举报并会尽快处理。";
         try {
             SendMessageRequest req = new SendMessageRequest();
-            req.setFromUserId(ADMIN_USER_ID);
+            req.setFromUserId(adminId);
             req.setToUserId(reporterId);
             req.setContent(content);
             req.setContentType(0);
@@ -317,6 +332,8 @@ public class ReportController {
 
     private void sendAdminReportPendingNotify(Long reporterId, int targetType, long targetId) {
         if (chatService == null) return;
+        Long adminId = resolveSystemNoticeUserId();
+        if (adminId == null) return;
         String typeStr = switch (targetType) {
             case 1 -> "用户";
             case 2 -> "帖子";
@@ -326,8 +343,8 @@ public class ReportController {
         String content = "有新的举报待处理：举报" + typeStr + "（ID=" + targetId + "）。";
         try {
             SendMessageRequest req = new SendMessageRequest();
-            req.setFromUserId(reporterId != null ? reporterId : ADMIN_USER_ID);
-            req.setToUserId(ADMIN_USER_ID);
+            req.setFromUserId(reporterId != null ? reporterId : adminId);
+            req.setToUserId(adminId);
             req.setContent(content);
             req.setContentType(0);
             chatService.sendMessage(req);
@@ -337,6 +354,8 @@ public class ReportController {
 
     private void sendUserReportResultNotify(Long reporterId, Integer targetType, Long targetId, boolean success) {
         if (chatService == null || reporterId == null) return;
+        Long adminId = resolveSystemNoticeUserId();
+        if (adminId == null) return;
         String typeStr = switch (targetType != null ? targetType : 0) {
             case 1 -> "用户";
             case 2 -> "帖子";
@@ -351,7 +370,7 @@ public class ReportController {
         }
         try {
             SendMessageRequest req = new SendMessageRequest();
-            req.setFromUserId(ADMIN_USER_ID);
+            req.setFromUserId(adminId);
             req.setToUserId(reporterId);
             req.setContent(content);
             req.setContentType(0);

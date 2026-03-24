@@ -1,8 +1,11 @@
 package org.example.myblog.serverl;
 
 import org.example.myblog.config.AliyunGreenProperties;
+import org.example.myblog.constant.UserConstants;
 import org.example.myblog.entiy.Post;
+import org.example.myblog.entiy.User;
 import org.example.myblog.mapper.PostMapper;
+import org.example.myblog.mapper.UserMapper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import com.alibaba.fastjson2.JSON;
@@ -31,9 +34,6 @@ import java.util.List;
 @Service
 public class AliyunGreenService {
 
-    /** 用于系统通知的管理员账号 ID（请确保数据库中存在该用户），与 PostServiceImpl 保持一致 */
-    private static final long SYSTEM_ADMIN_ID = 6L;
-
     private final AliyunGreenProperties props;
     private final PostMapper postMapper;
     // 旧版 Green 1.0 客户端（用于图片/视频）
@@ -44,6 +44,19 @@ public class AliyunGreenService {
     /** 站内信服务，用于给用户发送“AI审核通过/拦截”的系统通知 */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ChatService chatService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private UserMapper userMapper;
+
+    private Long resolveSystemNoticeUserId() {
+        if (userMapper == null) return null;
+        try {
+            User u = userMapper.selectByUsername(UserConstants.SYSTEM_NOTICE_USERNAME);
+            return u != null ? u.getId() : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 
     private void imageInfo(String msg) {
         System.out.println(msg);
@@ -414,9 +427,11 @@ public class AliyunGreenService {
 
     private void sendSystemNotify(Long toUserId, String content) {
         if (chatService == null || toUserId == null || content == null || content.isBlank()) return;
+        Long systemUserId = resolveSystemNoticeUserId();
+        if (systemUserId == null) return;
         try {
             SendMessageRequest req = new SendMessageRequest();
-            req.setFromUserId(SYSTEM_ADMIN_ID);
+            req.setFromUserId(systemUserId);
             req.setToUserId(toUserId);
             req.setContent(content);
             req.setContentType(0);

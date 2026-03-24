@@ -3,7 +3,6 @@ package org.example.myblog.controller;
 import org.example.myblog.dto.CreatePostRequest;
 import org.example.myblog.entiy.Post;
 import org.example.myblog.mapper.PostMapper;
-import org.example.myblog.serverl.PostBehaviorService;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
 import org.example.myblog.serverl.VideoProcessingService;
@@ -35,9 +34,6 @@ public class PostController {
 
     @Autowired(required = false)
     private PostHotService postHotService;
-
-    @Autowired(required = false)
-    private PostBehaviorService postBehaviorService;
 
     @Autowired
     private PostMapper postMapper;
@@ -133,14 +129,10 @@ public class PostController {
      */
     @GetMapping("/detail")
     @ResponseBody
-    public Post detail(@RequestParam("id") Long id,
-                       @RequestParam(value = "userId", required = false) Long userId) {
+    public Post detail(@RequestParam("id") Long id) {
         Post post = postService.getPostDetail(id);
         if (post != null && postHotService != null) {
             postHotService.incrementView(id);
-        }
-        if (post != null && postBehaviorService != null && userId != null && userId > 0) {
-            postBehaviorService.recordView(userId, id);
         }
         return post;
     }

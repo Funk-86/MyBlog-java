@@ -1,6 +1,7 @@
 package org.example.myblog.serverl.impl;
 
 import com.alibaba.fastjson2.JSON;
+import org.example.myblog.constant.UserConstants;
 import org.example.myblog.config.HotProperties;
 import org.example.myblog.dto.SendMessageRequest;
 import org.example.myblog.entiy.Post;
@@ -10,10 +11,10 @@ import org.example.myblog.mapper.PostLikeMapper;
 import org.example.myblog.mapper.PostMapper;
 import org.example.myblog.mapper.PostMediaMapper;
 import org.example.myblog.mapper.TopicMapper;
+import org.example.myblog.mapper.UserMapper;
 import org.example.myblog.serverl.ChatService;
 import org.example.myblog.serverl.AliyunGreenService;
 import org.example.myblog.serverl.ContentModerationService;
-import org.example.myblog.serverl.PostBehaviorService;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,9 +39,6 @@ import java.util.Set;
 
 @Service
 public class PostServiceImpl implements PostService {
-
-    /** 用于系统通知的管理员账号 ID（请确保数据库中存在该用户） */
-    private static final long SYSTEM_ADMIN_ID = 6L;
 
     @Autowired
     private PostMapper postMapper;
@@ -76,10 +74,20 @@ public class PostServiceImpl implements PostService {
     private ContentModerationService contentModerationService;
 
     @Autowired(required = false)
-    private PostBehaviorService postBehaviorService;
+    private PlatformTransactionManager transactionManager;
 
     @Autowired(required = false)
-    private PlatformTransactionManager transactionManager;
+    private UserMapper userMapper;
+
+    private Long resolveSystemNoticeUserId() {
+        if (userMapper == null) return null;
+        try {
+            var u = userMapper.selectByUsername(UserConstants.SYSTEM_NOTICE_USERNAME);
+            return u != null ? u.getId() : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 
     @Override
     public Post createPost(Long userId,
@@ -389,6 +397,8 @@ public class PostServiceImpl implements PostService {
 
     private void sendSystemNotify(Long toUserId, String content) {
         if (chatService == null || toUserId == null || content == null || content.isBlank()) return;
+        Long systemUserId = resolveSystemNoticeUserId();
+        if (systemUserId == null) return;
         try {
             Long to = toUserId;
             String text = content;
@@ -398,7 +408,7 @@ public class PostServiceImpl implements PostService {
                 tt.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
                 tt.executeWithoutResult(status -> {
                     SendMessageRequest req = new SendMessageRequest();
-                    req.setFromUserId(SYSTEM_ADMIN_ID);
+                    req.setFromUserId(systemUserId);
                     req.setToUserId(to);
                     req.setContent(text);
                     req.setContentType(0);
@@ -406,7 +416,7 @@ public class PostServiceImpl implements PostService {
                 });
             } else {
                 SendMessageRequest req = new SendMessageRequest();
-                req.setFromUserId(SYSTEM_ADMIN_ID);
+                req.setFromUserId(systemUserId);
                 req.setToUserId(to);
                 req.setContent(text);
                 req.setContentType(0);
@@ -641,37 +651,18 @@ public class PostServiceImpl implements PostService {
         }
 
         // 3) 标题关键词（1-2 个）
-        List<String> keywords = extractKeywords(current.getTitle(), current.getContent(), topics);
+        List<String> keywords = extractKeywords(current.getTitle(), topics);
         for (String kw : keywords) {
             if (kw == null || kw.isBlank()) continue;
             appendFiltered(merged, postMapper.searchByKeyword(kw, 0, pool / 2), seen);
         }
 
-        // 4) 用户行为推荐（“看了这篇的人也看了”）
-        Map<Long, Double> behaviorScoreMap = new HashMap<>();
-        if (postBehaviorService != null) {
-            Map<Long, Double> behaviorCandidates = postBehaviorService.listAlsoViewedScores(postId, Math.max(size * 4, 20));
-            if (!behaviorCandidates.isEmpty()) {
-                for (Map.Entry<Long, Double> entry : behaviorCandidates.entrySet()) {
-                    Long relatedId = entry.getKey();
-                    if (relatedId == null || seen.contains(relatedId)) continue;
-                    Post p = postMapper.selectDetailById(relatedId);
-                    if (p == null) continue;
-                    if (p.getStatus() != null && p.getStatus() != 0) continue;
-                    if (p.getVisibility() != null && p.getVisibility() != 0) continue;
-                    seen.add(relatedId);
-                    merged.add(p);
-                    behaviorScoreMap.put(relatedId, entry.getValue() == null ? 0.0 : entry.getValue());
-                }
-            }
-        }
-
-        // 5) 用户行为/偏好推荐兜底
+        // 4) 用户行为推荐兜底（“看了这篇的人也看了”）
         if (merged.size() < size) {
             appendFiltered(merged, listRecommended(userId, 1, Math.max(size * 3, 20)), seen);
         }
 
-        List<Post> ranked = rankRelated(current, topics, keywords, merged, behaviorScoreMap);
+        List<Post> ranked = rankRelated(current, topics, merged);
         List<Post> result = ranked.size() > size ? ranked.subList(0, size) : ranked;
         cacheRelated(cacheKey, result);
         return result;
@@ -710,7 +701,7 @@ public class PostServiceImpl implements PostService {
         }
     }
 
-    private List<String> extractKeywords(String title, String content, List<String> topics) {
+    private List<String> extractKeywords(String title, List<String> topics) {
         LinkedHashSet<String> set = new LinkedHashSet<>();
         if (topics != null) {
             for (String t : topics) {
@@ -718,41 +709,26 @@ public class PostServiceImpl implements PostService {
                 if (set.size() >= 2) break;
             }
         }
-        String titleText = title == null ? "" : title.trim();
-        if (!titleText.isBlank()) {
+        String s = title == null ? "" : title.trim();
+        if (!s.isBlank()) {
             try {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("[\\u4e00-\\u9fa5]{2,6}").matcher(titleText);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("[\\u4e00-\\u9fa5]{2,6}").matcher(s);
                 while (m.find() && set.size() < 2) {
                     set.add(m.group());
                 }
             } catch (Exception ignored) {
             }
-            for (String w : titleText.split("\\s+")) {
+            for (String w : s.split("\\s+")) {
                 if (set.size() >= 2) break;
                 if (w == null) continue;
                 String v = w.trim();
                 if (v.length() >= 2 && v.length() <= 12) set.add(v);
             }
         }
-        String summary = content == null ? "" : content.trim();
-        if (!summary.isBlank() && set.size() < 3) {
-            if (summary.length() > 120) summary = summary.substring(0, 120);
-            try {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("[\\u4e00-\\u9fa5]{2,6}").matcher(summary);
-                while (m.find() && set.size() < 3) {
-                    set.add(m.group());
-                }
-            } catch (Exception ignored) {
-            }
-        }
         return new ArrayList<>(set);
     }
 
-    private List<Post> rankRelated(Post current,
-                                   List<String> topics,
-                                   List<String> keywords,
-                                   List<Post> candidates,
-                                   Map<Long, Double> behaviorScoreMap) {
+    private List<Post> rankRelated(Post current, List<String> topics, List<Post> candidates) {
         if (candidates == null || candidates.isEmpty()) return List.of();
         Set<String> topicSet = new HashSet<>();
         if (topics != null) {
@@ -760,37 +736,15 @@ public class PostServiceImpl implements PostService {
                 if (t != null && !t.isBlank()) topicSet.add(t.trim());
             }
         }
-        Set<String> keywordSet = new HashSet<>();
-        if (keywords != null) {
-            for (String kw : keywords) {
-                if (kw != null && !kw.isBlank()) keywordSet.add(kw.trim().toLowerCase());
-            }
-        }
         Long c1 = current.getCategoryId1();
         Long c2 = current.getCategoryId2();
         long nowMs = System.currentTimeMillis();
-        double maxBehaviorScore = 0.0;
-        if (behaviorScoreMap != null) {
-            for (Double score : behaviorScoreMap.values()) {
-                if (score != null && score > maxBehaviorScore) maxBehaviorScore = score;
-            }
-        }
 
-        double finalMaxBehaviorScore = maxBehaviorScore;
-        candidates.sort(Comparator.comparingDouble(
-                (Post p) -> scoreRelated(p, topicSet, keywordSet, c1, c2, nowMs, behaviorScoreMap, finalMaxBehaviorScore)
-        ).reversed());
+        candidates.sort(Comparator.comparingDouble((Post p) -> scoreRelated(p, topicSet, c1, c2, nowMs)).reversed());
         return candidates;
     }
 
-    private double scoreRelated(Post p,
-                                Set<String> topicSet,
-                                Set<String> keywordSet,
-                                Long c1,
-                                Long c2,
-                                long nowMs,
-                                Map<Long, Double> behaviorScoreMap,
-                                double maxBehaviorScore) {
+    private double scoreRelated(Post p, Set<String> topicSet, Long c1, Long c2, long nowMs) {
         if (p == null) return 0;
         double score = 0;
         if (p.getHotScore() != null) score += p.getHotScore();
@@ -810,22 +764,7 @@ public class PostServiceImpl implements PostService {
                 }
             }
         }
-        if (keywordSet != null && !keywordSet.isEmpty()) {
-            String title = p.getTitle() == null ? "" : p.getTitle().toLowerCase();
-            String content = p.getContent() == null ? "" : p.getContent().toLowerCase();
-            for (String kw : keywordSet) {
-                if (kw == null || kw.isBlank()) continue;
-                if (title.contains(kw)) score += 35;
-                else if (content.contains(kw)) score += 15;
-            }
-        }
-        if (behaviorScoreMap != null && p.getId() != null) {
-            double behaviorScore = behaviorScoreMap.getOrDefault(p.getId(), 0.0);
-            if (behaviorScore > 0) {
-                double normalized = maxBehaviorScore > 0 ? behaviorScore / maxBehaviorScore : 0;
-                score += 120 * normalized;
-            }
-        }
         return score;
     }
 }
+

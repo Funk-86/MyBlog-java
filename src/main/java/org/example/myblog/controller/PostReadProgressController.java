@@ -1,6 +1,5 @@
 package org.example.myblog.controller;
 
-import org.example.myblog.serverl.PostBehaviorService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Controller;
@@ -28,9 +27,6 @@ public class PostReadProgressController {
 
     @Autowired(required = false)
     private StringRedisTemplate redisTemplate;
-
-    @Autowired(required = false)
-    private PostBehaviorService postBehaviorService;
 
     /**
      * 上报阅读进度
@@ -71,9 +67,6 @@ public class PostReadProgressController {
                 markUnique(userId, postId, true);
             } else if ("p90".equalsIgnoreCase(event)) {
                 markUnique(userId, postId, false);
-            }
-            if (postBehaviorService != null) {
-                postBehaviorService.recordReadSignal(userId, postId, event);
             }
         }
         return res;
