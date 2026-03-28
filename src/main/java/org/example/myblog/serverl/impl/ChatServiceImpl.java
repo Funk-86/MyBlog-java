@@ -3,6 +3,7 @@ package org.example.myblog.serverl.impl;
 import org.example.myblog.constant.UserConstants;
 import org.example.myblog.dto.ConversationDTO;
 import org.example.myblog.dto.MessageDTO;
+import org.example.myblog.dto.PeerBriefDTO;
 import org.example.myblog.dto.SendMessageRequest;
 import org.example.myblog.entiy.Conversation;
 import org.example.myblog.entiy.ConversationMember;
@@ -23,7 +24,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class ChatServiceImpl implements ChatService {
@@ -178,15 +178,12 @@ public class ChatServiceImpl implements ChatService {
             ConversationDTO dto = new ConversationDTO();
             dto.setConversationId(c.getId());
 
-            Map<String, Object> peerInfo = conversationMemberMapper.selectPeerInfo(c.getId(), userId);
-            if (peerInfo != null) {
-                Object pid = peerInfo.get("id");
-                if (pid instanceof Number) {
-                    dto.setPeerId(((Number) pid).longValue());
-                }
-                dto.setPeerUsername((String) peerInfo.get("username"));
-                dto.setPeerName((String) peerInfo.get("name"));
-                dto.setPeerAvatar((String) peerInfo.get("avatarUrl"));
+            PeerBriefDTO peer = conversationMemberMapper.selectPeerInfo(c.getId(), userId);
+            if (peer != null) {
+                dto.setPeerId(peer.getId());
+                dto.setPeerUsername(peer.getUsername());
+                dto.setPeerName(peer.getDisplayName());
+                dto.setPeerAvatar(peer.getAvatarUrl());
             }
 
             Message last = null;

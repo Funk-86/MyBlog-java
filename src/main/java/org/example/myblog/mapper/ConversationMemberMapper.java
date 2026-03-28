@@ -1,11 +1,11 @@
 package org.example.myblog.mapper;
 
 import org.apache.ibatis.annotations.*;
+import org.example.myblog.dto.PeerBriefDTO;
 import org.example.myblog.entiy.ConversationMember;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 @Mapper
 public interface ConversationMemberMapper {
@@ -56,7 +56,7 @@ public interface ConversationMemberMapper {
     @Select("""
             SELECT u.id,
                    u.username                        AS username,
-                   COALESCE(up.nickname, u.username) AS name,
+                   COALESCE(up.nickname, u.username) AS displayName,
                    up.avatar_url                     AS avatarUrl
             FROM conversation_member m
                      JOIN `user` u ON u.id = m.user_id
@@ -65,8 +65,8 @@ public interface ConversationMemberMapper {
               AND m.user_id <> #{selfUserId}
             LIMIT 1
             """)
-    Map<String, Object> selectPeerInfo(@Param("conversationId") Long conversationId,
-                                       @Param("selfUserId") Long selfUserId);
+    PeerBriefDTO selectPeerInfo(@Param("conversationId") Long conversationId,
+                                @Param("selfUserId") Long selfUserId);
 
     /**
      * 查询两个人是否已经有单聊会话（通过成员表判断）
