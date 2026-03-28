@@ -49,7 +49,10 @@ public interface UserFollowMapper {
      * 我关注的人列表（用于发私信）
      */
     @Select("""
-            SELECT u.id, COALESCE(up.nickname, u.username) AS nickname, up.avatar_url AS avatarUrl
+            SELECT u.id,
+                   u.username                        AS username,
+                   COALESCE(NULLIF(TRIM(up.nickname), ''), u.username) AS nickname,
+                   up.avatar_url                     AS avatarUrl
             FROM user_follow uf
             JOIN `user` u ON u.id = uf.followee_id
             LEFT JOIN user_profile up ON up.user_id = u.id
@@ -63,7 +66,10 @@ public interface UserFollowMapper {
      * 我的粉丝列表（关注我的人，用于 @ 只能 @ 粉丝）
      */
     @Select("""
-            SELECT u.id, COALESCE(up.nickname, u.username) AS nickname, up.avatar_url AS avatarUrl
+            SELECT u.id,
+                   u.username                        AS username,
+                   COALESCE(NULLIF(TRIM(up.nickname), ''), u.username) AS nickname,
+                   up.avatar_url                     AS avatarUrl
             FROM user_follow uf
             JOIN `user` u ON u.id = uf.follower_id
             LEFT JOIN user_profile up ON up.user_id = u.id

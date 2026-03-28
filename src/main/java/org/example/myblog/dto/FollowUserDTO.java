@@ -8,6 +8,8 @@ import lombok.Data;
 @Data
 public class FollowUserDTO {
     private Long id;
+    /** 登录名，昵称缺失时前端可展示 */
+    private String username;
     private String nickname;
     private String avatarUrl;
 }
