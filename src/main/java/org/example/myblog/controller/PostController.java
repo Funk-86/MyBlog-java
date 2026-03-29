@@ -135,7 +135,7 @@ public class PostController {
     @ResponseBody
     public Post detail(@RequestParam("id") Long id,
                        @RequestParam(value = "userId", required = false) Long userId) {
-        Post post = postService.getPostDetail(id);
+        Post post = postService.getPostDetail(id, userId);
         if (post != null && postHotService != null) {
             postHotService.incrementView(id);
         }
@@ -165,8 +165,9 @@ public class PostController {
     @ResponseBody
     public List<Post> hotPosts(@RequestParam(value = "page", defaultValue = "1") int page,
                                @RequestParam(value = "size", defaultValue = "10") int size,
-                               @RequestParam(value = "categoryId", required = false) Long categoryId) {
-        return postService.listHotPostsByCategory(categoryId, page, size);
+                               @RequestParam(value = "categoryId", required = false) Long categoryId,
+                               @RequestParam(value = "viewerUserId", required = false) Long viewerUserId) {
+        return postService.listHotPostsByCategory(categoryId, page, size, viewerUserId);
     }
 
     /**
@@ -183,11 +184,11 @@ public class PostController {
         long total;
         if (categoryId != null) {
             // 分区 + 热度排序，统计同一筛选条件下的总数
-            list = postMapper.listByHotScoreWithCategory(categoryId, offset, size);
+            list = postMapper.listByHotScoreWithCategory(categoryId, offset, size, null);
             total = postMapper.countByCategory(categoryId);
         } else {
             // 全站热门列表，统计可见且正常的总数
-            list = postMapper.listByHotScore(offset, size);
+            list = postMapper.listByHotScore(offset, size, null);
             total = postMapper.countVisible();
         }
         Map<String, Object> result = new HashMap<>();
@@ -214,8 +215,9 @@ public class PostController {
     @ResponseBody
     public List<Post> search(@RequestParam(value = "keyword", required = false) String keyword,
                              @RequestParam(value = "page", defaultValue = "1") int page,
-                             @RequestParam(value = "size", defaultValue = "20") int size) {
-        return postService.searchPosts(keyword, page, size);
+                             @RequestParam(value = "size", defaultValue = "20") int size,
+                             @RequestParam(value = "viewerUserId", required = false) Long viewerUserId) {
+        return postService.searchPosts(keyword, viewerUserId, page, size);
     }
 
     /**
@@ -256,8 +258,9 @@ public class PostController {
     @ResponseBody
     public List<Post> userPosts(@RequestParam("userId") Long userId,
                                 @RequestParam(value = "page", defaultValue = "1") int page,
-                                @RequestParam(value = "size", defaultValue = "20") int size) {
-        return postService.listByUserId(userId, page, size);
+                                @RequestParam(value = "size", defaultValue = "20") int size,
+                                @RequestParam(value = "viewerUserId", required = false) Long viewerUserId) {
+        return postService.listByUserId(userId, viewerUserId, page, size);
     }
 
     /**
@@ -292,11 +295,12 @@ public class PostController {
     @ResponseBody
     public List<Post> categoryPosts(@RequestParam("categoryId") Long categoryId,
                                     @RequestParam(value = "page", defaultValue = "1") int page,
-                                    @RequestParam(value = "size", defaultValue = "10") int size) {
+                                    @RequestParam(value = "size", defaultValue = "10") int size,
+                                    @RequestParam(value = "viewerUserId", required = false) Long viewerUserId) {
         if (size <= 0) size = 10;
         if (size > 50) size = 50;
         int offset = (page <= 0 ? 0 : page - 1) * size;
-        return postMapper.listByHotScoreWithCategory(categoryId, offset, size);
+        return postMapper.listByHotScoreWithCategory(categoryId, offset, size, viewerUserId);
     }
 
     /**

@@ -1,7 +1,6 @@
 package org.example.myblog.mapper;
 
 import org.apache.ibatis.annotations.*;
-import org.example.myblog.dto.HotTitleDTO;
 import org.example.myblog.entiy.Post;
 
 import java.util.List;
@@ -181,11 +180,15 @@ public interface PostMapper {
                 AND (p.title LIKE CONCAT('%', #{keyword}, '%')
                   OR p.content LIKE CONCAT('%', #{keyword}, '%'))
               </if>
+              <if test="viewerUserId != null">
+                AND NOT EXISTS (SELECT 1 FROM user_block ub WHERE ub.blocker_id = p.user_id AND ub.blocked_id = #{viewerUserId})
+              </if>
             ORDER BY p.created_at DESC
             LIMIT #{limit} OFFSET #{offset}
             </script>
             """)
     List<Post> searchByKeyword(@Param("keyword") String keyword,
+                               @Param("viewerUserId") Long viewerUserId,
                                @Param("offset") int offset,
                                @Param("limit") int limit);
 
@@ -193,6 +196,7 @@ public interface PostMapper {
      * 查询当前用户已关注用户的帖子，同时联表用户名和头像
      */
     @Select("""
+            <script>
             SELECT p.id,
                    p.user_id       AS userId,
                    p.title,
@@ -240,16 +244,22 @@ public interface PostMapper {
               AND f.status = 0
               AND p.status = 0
               AND COALESCE(p.visibility, 0) = 0
+            <if test="viewerUserId != null">
+              AND NOT EXISTS (SELECT 1 FROM user_block ub WHERE ub.blocker_id = p.user_id AND ub.blocked_id = #{viewerUserId})
+            </if>
             ORDER BY p.created_at DESC
             LIMIT #{limit}
+            </script>
             """)
     List<Post> listByFollowedUsers(@Param("followerId") Long followerId,
-                                   @Param("limit") int limit);
+                                   @Param("limit") int limit,
+                                   @Param("viewerUserId") Long viewerUserId);
 
     /**
-     * 按用户查询帖子（个人空间动态/投稿）
+     * 按用户查询帖子（个人空间动态/投稿）；viewerUserId 非空时排除「作者已拉黑浏览者」的展示（对浏览者隐藏）
      */
     @Select("""
+            <script>
             SELECT p.id,
                    p.user_id       AS userId,
                    p.title,
@@ -285,10 +295,17 @@ public interface PostMapper {
                         FROM post_media WHERE media_type = 2 GROUP BY post_id
                      ) vid ON vid.post_id = p.id
             WHERE p.user_id = #{userId} AND p.status = 0
+            <if test="viewerUserId != null">
+              AND NOT EXISTS (SELECT 1 FROM user_block ub WHERE ub.blocker_id = p.user_id AND ub.blocked_id = #{viewerUserId})
+            </if>
             ORDER BY p.created_at DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
-    List<Post> listByUserId(@Param("userId") Long userId, @Param("offset") int offset, @Param("limit") int limit);
+    List<Post> listByUserId(@Param("userId") Long userId,
+                            @Param("viewerUserId") Long viewerUserId,
+                            @Param("offset") int offset,
+                            @Param("limit") int limit);
 
     /**
      * 用户收藏的帖子列表（含分类、视频，与首页展示一致）。
@@ -507,6 +524,7 @@ public interface PostMapper {
      * 按热度倒序分页查询（MySQL 降级）
      */
     @Select("""
+            <script>
             SELECT p.id, p.user_id AS userId, p.title, p.category_id_1 AS categoryId1, p.category_id_2 AS categoryId2,
                    p.content, p.type, p.status, p.like_count AS likeCount, p.comment_count AS commentCount,
                    p.share_count AS shareCount, p.view_count AS viewCount, p.favorite_count AS favoriteCount,
@@ -543,15 +561,22 @@ public interface PostMapper {
               GROUP BY pt.post_id
             ) tp ON tp.post_id = p.id
             WHERE p.status = 0 AND COALESCE(p.visibility, 0) = 0
+            <if test="viewerUserId != null">
+              AND NOT EXISTS (SELECT 1 FROM user_block ub WHERE ub.blocker_id = p.user_id AND ub.blocked_id = #{viewerUserId})
+            </if>
             ORDER BY p.hot_score DESC, p.created_at DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
-    List<Post> listByHotScore(@Param("offset") int offset, @Param("limit") int limit);
+    List<Post> listByHotScore(@Param("offset") int offset,
+                              @Param("limit") int limit,
+                              @Param("viewerUserId") Long viewerUserId);
 
     /**
      * 按分区 + 热度倒序分页（热点页点击分区时用）
      */
     @Select("""
+            <script>
             SELECT p.id, p.user_id AS userId, p.title, p.category_id_1 AS categoryId1, p.category_id_2 AS categoryId2,
                    p.content, p.type, p.status, p.like_count AS likeCount, p.comment_count AS commentCount,
                    p.share_count AS shareCount, p.view_count AS viewCount, p.favorite_count AS favoriteCount,
@@ -589,10 +614,17 @@ public interface PostMapper {
             ) tp ON tp.post_id = p.id
             WHERE p.status = 0 AND COALESCE(p.visibility, 0) = 0
               AND (p.category_id_1 = #{categoryId} OR p.category_id_2 = #{categoryId})
+            <if test="viewerUserId != null">
+              AND NOT EXISTS (SELECT 1 FROM user_block ub WHERE ub.blocker_id = p.user_id AND ub.blocked_id = #{viewerUserId})
+            </if>
             ORDER BY p.hot_score DESC, p.created_at DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
-    List<Post> listByHotScoreWithCategory(@Param("categoryId") Long categoryId, @Param("offset") int offset, @Param("limit") int limit);
+    List<Post> listByHotScoreWithCategory(@Param("categoryId") Long categoryId,
+                                          @Param("offset") int offset,
+                                          @Param("limit") int limit,
+                                          @Param("viewerUserId") Long viewerUserId);
 
     /**
      * 个性化推荐：用户通过点赞/收藏/评论互动过的帖子作者 ID 列表（用于偏好加权）
@@ -625,6 +657,7 @@ public interface PostMapper {
      * 按话题名称查询帖子列表
      */
     @Select("""
+            <script>
             SELECT p.id, p.user_id AS userId, p.title, p.category_id_1 AS categoryId1, p.category_id_2 AS categoryId2,
                    p.content, p.type, p.status, p.like_count AS likeCount, p.comment_count AS commentCount,
                    p.share_count AS shareCount, p.view_count AS viewCount, p.favorite_count AS favoriteCount,
@@ -664,12 +697,17 @@ public interface PostMapper {
               GROUP BY pt2.post_id
             ) tp ON tp.post_id = p.id
             WHERE p.status = 0 AND COALESCE(p.visibility, 0) = 0
+            <if test="viewerUserId != null">
+              AND NOT EXISTS (SELECT 1 FROM user_block ub WHERE ub.blocker_id = p.user_id AND ub.blocked_id = #{viewerUserId})
+            </if>
             ORDER BY p.hot_score DESC, p.created_at DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
     List<Post> listByTopic(@Param("topicName") String topicName,
                            @Param("offset") int offset,
-                           @Param("limit") int limit);
+                           @Param("limit") int limit,
+                           @Param("viewerUserId") Long viewerUserId);
 
     /** 文章总数（正常 + 审核中） */
     @Select("SELECT COUNT(*) FROM post WHERE status IN (0, 1)")

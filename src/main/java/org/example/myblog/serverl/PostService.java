@@ -39,7 +39,11 @@ public interface PostService {
      * @param followerId 当前用户 ID
      * @param limit      一次返回的帖子数量
      */
-    List<Post> listFollowedPosts(Long followerId, int limit);
+    default List<Post> listFollowedPosts(Long followerId, int limit) {
+        return listFollowedPosts(followerId, limit, followerId);
+    }
+
+    List<Post> listFollowedPosts(Long followerId, int limit, Long viewerUserId);
 
     /**
      * 发帖并保存图片或视频（支持最多 2 个分区）
@@ -60,7 +64,14 @@ public interface PostService {
     /**
      * 根据 ID 查询帖子详情（含用户信息、图片）
      */
-    Post getPostDetail(Long id);
+    default Post getPostDetail(Long id) {
+        return getPostDetail(id, null);
+    }
+
+    /**
+     * @param viewerUserId 当前浏览用户；若帖子作者已拉黑该用户，则返回 null
+     */
+    Post getPostDetail(Long id, Long viewerUserId);
 
     /** 帖子点赞 */
     void likePost(Long postId, Long userId);
@@ -95,15 +106,28 @@ public interface PostService {
     /**
      * 按热度获取帖子列表（优先 Redis ZSet，降级 MySQL）
      */
-    List<Post> listHotPosts(int page, int size);
+    default List<Post> listHotPosts(int page, int size) {
+        return listHotPosts(page, size, null);
+    }
+
+    List<Post> listHotPosts(int page, int size, Long viewerUserId);
+
+    default List<Post> listHotPostsByCategory(Long categoryId, int page, int size) {
+        return listHotPostsByCategory(categoryId, page, size, null);
+    }
 
     /** 按分区筛选的热点列表（categoryId 为 null 时同 listHotPosts） */
-    List<Post> listHotPostsByCategory(Long categoryId, int page, int size);
+    List<Post> listHotPostsByCategory(Long categoryId, int page, int size, Long viewerUserId);
+
+    default List<Post> listByUserId(Long userId, int page, int size) {
+        return listByUserId(userId, null, page, size);
+    }
 
     /**
      * 按用户查询帖子（个人空间动态/投稿）
+     * @param viewerUserId 浏览者；非空时过滤「空间主人已拉黑浏览者」时的列表（对浏览者不可见）
      */
-    List<Post> listByUserId(Long userId, int page, int size);
+    List<Post> listByUserId(Long userId, Long viewerUserId, int page, int size);
 
     /**
      * 用户收藏的帖子列表
@@ -114,10 +138,14 @@ public interface PostService {
     /** 用户点赞的帖子列表 */
     List<Post> listLikedPosts(Long userId, int page, int size);
 
+    default List<Post> searchPosts(String keyword, int page, int size) {
+        return searchPosts(keyword, null, page, size);
+    }
+
     /**
      * 关键字搜索帖子（按标题 / 内容模糊匹配）
      */
-    List<Post> searchPosts(String keyword, int page, int size);
+    List<Post> searchPosts(String keyword, Long viewerUserId, int page, int size);
 
     /** 审核通过帖子：status 置为 0，并发送系统通知 */
     void approvePost(Long postId);

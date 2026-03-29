@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.example.myblog.mapper.UserProfileMapper;
 import org.example.myblog.serverl.EmailCodeService;
+import org.example.myblog.serverl.UserBlockService;
 import org.example.myblog.serverl.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +54,9 @@ public class UserController {
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private UserBlockService userBlockService;
 
     /**
      * 管理端：用户列表
@@ -282,6 +286,50 @@ public class UserController {
                            @RequestParam("targetId") Long targetId) {
         boolean ok = userService.unfollow(userId, targetId);
         return ok ? "ok" : "fail";
+    }
+
+    /**
+     * 拉黑用户：blocker 拉黑 blocked 后，blocked 无法再看到 blocker 的帖子
+     * POST /user/block?blockerId=1&blockedId=2
+     */
+    @PostMapping("/block")
+    @ResponseBody
+    public Map<String, Object> blockUser(@RequestParam("blockerId") Long blockerId,
+                                         @RequestParam("blockedId") Long blockedId) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            userBlockService.block(blockerId, blockedId);
+            result.put("success", true);
+        } catch (IllegalArgumentException e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 取消拉黑 POST /user/unblock?blockerId=1&blockedId=2
+     */
+    @PostMapping("/unblock")
+    @ResponseBody
+    public Map<String, Object> unblockUser(@RequestParam("blockerId") Long blockerId,
+                                         @RequestParam("blockedId") Long blockedId) {
+        userBlockService.unblock(blockerId, blockedId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        return result;
+    }
+
+    /**
+     * 是否已拉黑 GET /user/block/status?blockerId=1&blockedId=2
+     */
+    @GetMapping("/block/status")
+    @ResponseBody
+    public Map<String, Object> blockStatus(@RequestParam("blockerId") Long blockerId,
+                                           @RequestParam("blockedId") Long blockedId) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("blocked", userBlockService.isBlocked(blockerId, blockedId));
+        return result;
     }
 
     /**

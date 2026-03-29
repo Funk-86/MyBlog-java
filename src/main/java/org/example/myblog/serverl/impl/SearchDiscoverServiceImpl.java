@@ -34,7 +34,7 @@ public class SearchDiscoverServiceImpl implements SearchDiscoverService {
 
         int fetch = Math.max(needItems, 24);
         List<Topic> topics = topicMapper.listHotTopics(Math.min(fetch, 50));
-        List<Post> posts = postMapper.listByHotScore(0, Math.min(fetch, 50));
+        List<Post> posts = postMapper.listByHotScore(0, Math.min(fetch, 50), null);
 
         Set<String> usedTexts = new HashSet<>();
         List<SearchDiscoverItemVO> items = new ArrayList<>();

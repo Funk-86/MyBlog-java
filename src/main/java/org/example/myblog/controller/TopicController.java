@@ -42,11 +42,12 @@ public class TopicController {
     @ResponseBody
     public List<Post> posts(@RequestParam("name") String name,
                             @RequestParam(value = "page", defaultValue = "1") int page,
-                            @RequestParam(value = "size", defaultValue = "10") int size) {
+                            @RequestParam(value = "size", defaultValue = "10") int size,
+                            @RequestParam(value = "viewerUserId", required = false) Long viewerUserId) {
         if (size <= 0) size = 10;
         if (size > 50) size = 50;
         int offset = (page <= 0 ? 0 : page - 1) * size;
-        return postMapper.listByTopic(name, offset, size);
+        return postMapper.listByTopic(name, offset, size, viewerUserId);
     }
 
     /**

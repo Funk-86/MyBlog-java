@@ -9,6 +9,7 @@ import org.example.myblog.entiy.PostMedia;
 import org.example.myblog.mapper.PostFavoriteMapper;
 import org.example.myblog.mapper.PostLikeMapper;
 import org.example.myblog.mapper.PostMapper;
+import org.example.myblog.mapper.UserBlockMapper;
 import org.example.myblog.mapper.PostMediaMapper;
 import org.example.myblog.mapper.TopicMapper;
 import org.example.myblog.mapper.UserMapper;
@@ -38,6 +39,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class PostServiceImpl implements PostService {
@@ -53,6 +55,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private PostFavoriteMapper postFavoriteMapper;
+
+    @Autowired(required = false)
+    private UserBlockMapper userBlockMapper;
 
     @Autowired
     private FavoriteFolderService favoriteFolderService;
@@ -134,7 +139,7 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
-    public List<Post> listFollowedPosts(Long followerId, int limit) {
+    public List<Post> listFollowedPosts(Long followerId, int limit, Long viewerUserId) {
         if (followerId == null) {
             return List.of();
         }
@@ -144,7 +149,7 @@ public class PostServiceImpl implements PostService {
         if (limit > 50) {
             limit = 50;
         }
-        return postMapper.listByFollowedUsers(followerId, limit);
+        return postMapper.listByFollowedUsers(followerId, limit, viewerUserId);
     }
 
     @Override
@@ -231,15 +236,36 @@ public class PostServiceImpl implements PostService {
 
 
     @Override
-    public Post getPostDetail(Long id) {
+    public Post getPostDetail(Long id, Long viewerUserId) {
         if (id == null) {
             return null;
         }
+        Post p;
         try {
-            return postMapper.selectDetailById(id);
+            p = postMapper.selectDetailById(id);
         } catch (Exception e) {
-            return postMapper.selectById(id);
+            p = postMapper.selectById(id);
         }
+        if (p != null && viewerUserId != null && userBlockMapper != null
+                && p.getUserId() != null
+                && userBlockMapper.countPair(p.getUserId(), viewerUserId) > 0) {
+            return null;
+        }
+        return p;
+    }
+
+    private List<Post> filterPostsBlockedFromViewer(List<Post> list, Long viewerUserId) {
+        if (list == null || list.isEmpty() || viewerUserId == null || userBlockMapper == null) {
+            return list == null ? List.of() : list;
+        }
+        List<Long> blockers = userBlockMapper.listBlockerIdsWhoHideFrom(viewerUserId);
+        if (blockers == null || blockers.isEmpty()) {
+            return list;
+        }
+        Set<Long> set = new HashSet<>(blockers);
+        return list.stream()
+                .filter(post -> post.getUserId() == null || !set.contains(post.getUserId()))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -327,12 +353,12 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
-    public List<Post> listHotPosts(int page, int size) {
-        return listHotPostsByCategory(null, page, size);
+    public List<Post> listHotPosts(int page, int size, Long viewerUserId) {
+        return listHotPostsByCategory(null, page, size, viewerUserId);
     }
 
     @Override
-    public List<Post> listHotPostsByCategory(Long categoryId, int page, int size) {
+    public List<Post> listHotPostsByCategory(Long categoryId, int page, int size, Long viewerUserId) {
         if (size <= 0) size = 10;
         if (size > 50) size = 50;
         int pageIndex = (page <= 0 ? 0 : page - 1);
@@ -343,7 +369,7 @@ public class PostServiceImpl implements PostService {
 
         List<Post> candidates = new ArrayList<>();
         if (categoryId != null) {
-            candidates = postMapper.listByHotScoreWithCategory(categoryId, 0, poolSize);
+            candidates = postMapper.listByHotScoreWithCategory(categoryId, 0, poolSize, viewerUserId);
         } else if (postHotService != null) {
             List<Long> ids = postHotService.getHotPostIds(0, poolSize);
             if (!ids.isEmpty()) {
@@ -355,22 +381,24 @@ public class PostServiceImpl implements PostService {
                 }
             }
             if (candidates.isEmpty()) {
-                candidates = postMapper.listByHotScore(0, poolSize);
+                candidates = postMapper.listByHotScore(0, poolSize, viewerUserId);
+            } else {
+                candidates = filterPostsBlockedFromViewer(candidates, viewerUserId);
             }
         } else {
-            candidates = postMapper.listByHotScore(0, poolSize);
+            candidates = postMapper.listByHotScore(0, poolSize, viewerUserId);
         }
         if (candidates.isEmpty()) return List.of();
         return applyMixedHotAndRecency(candidates, pageIndex, size);
     }
 
     @Override
-    public List<Post> listByUserId(Long userId, int page, int size) {
+    public List<Post> listByUserId(Long userId, Long viewerUserId, int page, int size) {
         if (userId == null) return List.of();
         if (size <= 0) size = 20;
         if (size > 50) size = 50;
         int offset = (page <= 0 ? 0 : page - 1) * size;
-        return postMapper.listByUserId(userId, offset, size);
+        return postMapper.listByUserId(userId, viewerUserId, offset, size);
     }
 
     @Override
@@ -382,7 +410,8 @@ public class PostServiceImpl implements PostService {
         if (size <= 0) size = 20;
         if (size > 50) size = 50;
         int offset = (page <= 0 ? 0 : page - 1) * size;
-        return postMapper.listByUserFavorites(userId, folderId, offset, size);
+        return filterPostsBlockedFromViewer(
+                postMapper.listByUserFavorites(userId, folderId, offset, size), userId);
     }
 
     @Override
@@ -391,15 +420,16 @@ public class PostServiceImpl implements PostService {
         if (size <= 0) size = 20;
         if (size > 50) size = 50;
         int offset = (page <= 0 ? 0 : page - 1) * size;
-        return postMapper.listByUserLikes(userId, offset, size);
+        return filterPostsBlockedFromViewer(
+                postMapper.listByUserLikes(userId, offset, size), userId);
     }
 
     @Override
-    public List<Post> searchPosts(String keyword, int page, int size) {
+    public List<Post> searchPosts(String keyword, Long viewerUserId, int page, int size) {
         if (size <= 0) size = 20;
         if (size > 50) size = 50;
         int offset = (page <= 0 ? 0 : page - 1) * size;
-        return postMapper.searchByKeyword(keyword, offset, size);
+        return postMapper.searchByKeyword(keyword, viewerUserId, offset, size);
     }
 
     @Override
@@ -476,13 +506,13 @@ public class PostServiceImpl implements PostService {
 
         // 未登录或冷启动：直接按热度
         if (userId == null) {
-            return listHotPosts(page, size);
+            return listHotPosts(page, size, null);
         }
 
         List<Long> authorIds = postMapper.selectInteractedAuthorIds(userId, 100);
         List<Long> categoryIds = postMapper.selectInteractedCategoryIds(userId, 50);
         if (authorIds.isEmpty() && categoryIds.isEmpty()) {
-            return listHotPosts(page, size);
+            return listHotPosts(page, size, userId);
         }
 
         Set<Long> authorSet = new HashSet<>(authorIds);
@@ -491,7 +521,7 @@ public class PostServiceImpl implements PostService {
         // 取适量候选再重排，控制峰值内存与排序开销
         int poolSize = Math.max(size * 4, 80);
         if (poolSize > 150) poolSize = 150;
-        List<Post> candidates = postMapper.listByHotScore(0, poolSize);
+        List<Post> candidates = postMapper.listByHotScore(0, poolSize, userId);
         if (candidates.isEmpty()) return List.of();
 
         candidates.sort((a, b) -> Double.compare(
@@ -666,7 +696,7 @@ public class PostServiceImpl implements PostService {
                     Post p = postMapper.selectDetailById(rid);
                     if (p != null) behaviorCandidates.add(p);
                 }
-                appendFiltered(merged, behaviorCandidates, seen);
+                appendFiltered(merged, filterPostsBlockedFromViewer(behaviorCandidates, userId), seen);
                 behaviorScoreMap.putAll(coView);
             }
         }
@@ -681,22 +711,22 @@ public class PostServiceImpl implements PostService {
         }
         int topicPool = Math.min(pool, 80);
         for (int i = 0; i < Math.min(2, topics.size()); i++) {
-            appendFiltered(merged, postMapper.listByTopic(topics.get(i), 0, topicPool), seen);
+            appendFiltered(merged, postMapper.listByTopic(topics.get(i), 0, topicPool, userId), seen);
         }
 
         // 2) 同分区（主分区优先）
         if (current.getCategoryId1() != null) {
-            appendFiltered(merged, postMapper.listByHotScoreWithCategory(current.getCategoryId1(), 0, pool), seen);
+            appendFiltered(merged, postMapper.listByHotScoreWithCategory(current.getCategoryId1(), 0, pool, userId), seen);
         }
         if (current.getCategoryId2() != null) {
-            appendFiltered(merged, postMapper.listByHotScoreWithCategory(current.getCategoryId2(), 0, pool / 2), seen);
+            appendFiltered(merged, postMapper.listByHotScoreWithCategory(current.getCategoryId2(), 0, pool / 2, userId), seen);
         }
 
         // 3) 标题/摘要关键词（1-3 个）
         List<String> keywords = extractKeywords(current.getTitle(), current.getContent(), topics);
         for (String kw : keywords) {
             if (kw == null || kw.isBlank()) continue;
-            appendFiltered(merged, postMapper.searchByKeyword(kw, 0, pool / 2), seen);
+            appendFiltered(merged, postMapper.searchByKeyword(kw, userId, 0, pool / 2), seen);
         }
 
         // 4) 用户行为推荐兜底（“看了这篇的人也看了”）
@@ -706,6 +736,7 @@ public class PostServiceImpl implements PostService {
 
         List<Post> ranked = rankRelated(current, topics, merged, behaviorScoreMap);
         List<Post> result = ranked.size() > size ? ranked.subList(0, size) : ranked;
+        result = filterPostsBlockedFromViewer(result, userId);
         cacheRelated(cacheKey, result);
         return result;
     }
