@@ -210,6 +210,24 @@ public interface UserMapper {
     List<Map<String, Object>> listForAdminWithKeyword(@Param("offset") int offset, @Param("limit") int limit, @Param("keyword") String keyword);
 
     /**
+     * 管理端：用户总数（条件与 {@link #listForAdmin} / {@link #listForAdminWithKeyword} 一致，keyword 为空则全表计数）
+     */
+    @Select("""
+            <script>
+            SELECT COUNT(*) FROM `user` u
+            LEFT JOIN user_profile up ON up.user_id = u.id
+            <where>
+              <if test="keyword != null and keyword != ''">
+                (u.username LIKE CONCAT('%', #{keyword}, '%')
+                 OR up.nickname LIKE CONCAT('%', #{keyword}, '%')
+                 OR u.email LIKE CONCAT('%', #{keyword}, '%'))
+              </if>
+            </where>
+            </script>
+            """)
+    long countForAdmin(@Param("keyword") String keyword);
+
+    /**
      * 管理端：更新用户状态（0正常 2注销），并清空 banned_until
      */
     @Update("UPDATE `user` SET status = #{status}, banned_until = NULL WHERE id = #{id}")

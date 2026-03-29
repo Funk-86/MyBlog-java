@@ -59,20 +59,34 @@ public class UserController {
     private UserBlockService userBlockService;
 
     /**
-     * 管理端：用户列表
+     * 管理端：用户列表（带总数，与帖子管理列表分页一致）
      * GET /user/admin/list?page=1&size=20&keyword=xxx
      */
     @GetMapping("/admin/list")
     @ResponseBody
-    public List<Map<String, Object>> adminUserList(
+    public Map<String, Object> adminUserList(
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size,
             @RequestParam(value = "keyword", required = false) String keyword) {
-        int offset = (page - 1) * size;
-        if (keyword != null && !keyword.trim().isEmpty()) {
-            return userMapper.listForAdminWithKeyword(offset, size, keyword.trim());
+        if (size <= 0) {
+            size = 20;
         }
-        return userMapper.listForAdmin(offset, size);
+        if (size > 100) {
+            size = 100;
+        }
+        int offset = Math.max(0, page - 1) * size;
+        String kw = keyword != null ? keyword.trim() : null;
+        if (kw != null && kw.isEmpty()) {
+            kw = null;
+        }
+        List<Map<String, Object>> list = kw != null
+                ? userMapper.listForAdminWithKeyword(offset, size, kw)
+                : userMapper.listForAdmin(offset, size);
+        long total = userMapper.countForAdmin(kw);
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", list);
+        result.put("total", total);
+        return result;
     }
 
     /**
