@@ -247,12 +247,31 @@ public class PostServiceImpl implements PostService {
         } catch (Exception e) {
             p = postMapper.selectById(id);
         }
+        if (p != null) {
+            Integer st = p.getStatus();
+            // 已删除、已屏蔽：App/公开接口不可见
+            if (st != null && (st == 2 || st == 3)) {
+                return null;
+            }
+        }
         if (p != null && viewerUserId != null && userBlockMapper != null
                 && p.getUserId() != null
                 && userBlockMapper.countPair(p.getUserId(), viewerUserId) > 0) {
             return null;
         }
         return p;
+    }
+
+    @Override
+    public Post getPostDetailForAdmin(Long id) {
+        if (id == null) {
+            return null;
+        }
+        try {
+            return postMapper.selectDetailById(id);
+        } catch (Exception e) {
+            return postMapper.selectById(id);
+        }
     }
 
     private List<Post> filterPostsBlockedFromViewer(List<Post> list, Long viewerUserId) {
@@ -367,6 +386,32 @@ public class PostServiceImpl implements PostService {
             return;
         }
         postMapper.updateStatusDeletedBatch(ids);
+    }
+
+    @Override
+    public void adminShieldPost(Long postId) {
+        if (postId == null) {
+            return;
+        }
+        Post p = postMapper.selectById(postId);
+        if (p == null) {
+            return;
+        }
+        postMapper.updateStatus(postId, 3);
+    }
+
+    @Override
+    public void adminUnshieldPost(Long postId) {
+        if (postId == null) {
+            return;
+        }
+        Post p = postMapper.selectById(postId);
+        if (p == null) {
+            return;
+        }
+        if (p.getStatus() != null && p.getStatus() == 3) {
+            postMapper.updateStatus(postId, 0);
+        }
     }
 
     @Override

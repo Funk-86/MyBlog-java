@@ -73,6 +73,9 @@ public interface PostService {
      */
     Post getPostDetail(Long id, Long viewerUserId);
 
+    /** 管理端查看帖子详情（不过滤已删除/已屏蔽等状态，不计浏览量） */
+    Post getPostDetailForAdmin(Long id);
+
     /** 帖子点赞 */
     void likePost(Long postId, Long userId);
 
@@ -99,6 +102,12 @@ public interface PostService {
 
     /** 管理端批量软删除 */
     void adminDeletePosts(List<Long> postIds);
+
+    /** 管理端屏蔽帖子（status=3，App 端列表与详情均不可见） */
+    void adminShieldPost(Long postId);
+
+    /** 管理端取消屏蔽（仅当当前为已屏蔽时恢复为正常） */
+    void adminUnshieldPost(Long postId);
 
     /** 是否已赞该帖子 */
     boolean isPostLiked(Long postId, Long userId);

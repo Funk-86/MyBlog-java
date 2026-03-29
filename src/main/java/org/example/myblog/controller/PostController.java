@@ -216,7 +216,33 @@ public class PostController {
     @GetMapping("/admin/detail")
     @ResponseBody
     public Post adminDetail(@RequestParam("id") Long id) {
-        return postService.getPostDetail(id);
+        return postService.getPostDetailForAdmin(id);
+    }
+
+    /**
+     * 管理端：屏蔽帖子（status=3，App 端不可见）
+     * POST /post/admin/shield?postId=1
+     */
+    @PostMapping("/admin/shield")
+    @ResponseBody
+    public Map<String, Object> adminShield(@RequestParam("postId") Long postId) {
+        postService.adminShieldPost(postId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        return result;
+    }
+
+    /**
+     * 管理端：取消屏蔽（恢复为正常）
+     * POST /post/admin/unshield?postId=1
+     */
+    @PostMapping("/admin/unshield")
+    @ResponseBody
+    public Map<String, Object> adminUnshield(@RequestParam("postId") Long postId) {
+        postService.adminUnshieldPost(postId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        return result;
     }
 
     /**
