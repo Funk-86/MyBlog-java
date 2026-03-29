@@ -5,6 +5,7 @@ import org.example.myblog.dto.UserSpaceDTO;
 import org.example.myblog.entiy.User;
 
 import java.util.List;
+import java.util.Map;
 
 public interface UserService {
 
@@ -34,6 +35,12 @@ public interface UserService {
      * @return 创建成功返回新用户，失败返回 null（用户名或邮箱已存在）
      */
     User createUserByAdmin(String username, String email, String rawPassword, Integer role);
+
+    /**
+     * 管理端：更新用户基本信息与资料；password 为空或 null 表示不修改密码
+     */
+    Map<String, Object> updateUserByAdmin(Long id, String username, String email, Integer role,
+                                          String nickname, String bio, String newPassword);
 
     /**
      * 通过邮箱 + 验证码重置密码

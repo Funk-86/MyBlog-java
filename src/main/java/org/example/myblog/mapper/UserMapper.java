@@ -128,6 +128,31 @@ public interface UserMapper {
                               @Param("salt") String salt);
 
     /**
+     * 管理端：更新用户名、邮箱、角色
+     */
+    @Update("""
+            UPDATE `user`
+            SET username = #{username}, email = #{email}, role = #{role}, updated_at = NOW()
+            WHERE id = #{id}
+            """)
+    int updateUserBasic(@Param("id") Long id,
+                        @Param("username") String username,
+                        @Param("email") String email,
+                        @Param("role") Integer role);
+
+    /**
+     * 按主键更新密码（与邮箱更新并存，管理端重置用）
+     */
+    @Update("""
+            UPDATE `user`
+            SET password_hash = #{passwordHash}, salt = #{salt}, updated_at = NOW()
+            WHERE id = #{id}
+            """)
+    int updatePasswordById(@Param("id") Long id,
+                           @Param("passwordHash") String passwordHash,
+                           @Param("salt") String salt);
+
+    /**
      * 查询个人空间信息：基本资料 + 各种统计
      */
     @Select("""

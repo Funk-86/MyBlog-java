@@ -131,6 +131,29 @@ public class UserController {
     }
 
     /**
+     * 管理端：更新用户信息（用户名、邮箱、角色、昵称、简介；密码可选，留空不修改）
+     * PUT /user/admin/update
+     * Body: { "id": 1, "username": "", "email": "", "role": 0, "nickname": "", "bio": "", "password": "" }
+     */
+    @PutMapping("/admin/update")
+    @ResponseBody
+    public Map<String, Object> adminUpdateUser(@RequestBody Map<String, Object> body) {
+        Object idObj = body.get("id");
+        if (idObj == null) {
+            throw new IllegalArgumentException("id 不能为空");
+        }
+        long id = ((Number) idObj).longValue();
+        String username = body.get("username") != null ? body.get("username").toString().trim() : null;
+        String email = body.get("email") != null ? body.get("email").toString().trim() : null;
+        Object roleObj = body.get("role");
+        Integer role = (roleObj instanceof Number) ? ((Number) roleObj).intValue() : 0;
+        String nickname = body.get("nickname") != null ? body.get("nickname").toString() : null;
+        String bio = body.get("bio") != null ? body.get("bio").toString() : null;
+        String password = body.get("password") != null ? body.get("password").toString() : null;
+        return userService.updateUserByAdmin(id, username, email, role, nickname, bio, password);
+    }
+
+    /**
      * 管理端：封禁/解封/注销用户（批量）
      * PUT /user/admin/status
      * Body: { "ids": [1, 2], "status": 1, "duration": { "value": 7, "unit": "day" } }  // 封禁时可选 duration；无或 unit=permanent 为永久

@@ -5,9 +5,12 @@ import org.example.myblog.dto.FollowUserDTO;
 import org.example.myblog.dto.UserSpaceDTO;
 import org.example.myblog.entiy.User;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.example.myblog.mapper.UserMapper;
 import org.example.myblog.mapper.UserFollowMapper;
+import org.example.myblog.mapper.UserProfileMapper;
 import org.example.myblog.serverl.EmailCodeService;
 import org.example.myblog.serverl.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +27,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired(required = false)
     private UserFollowMapper userFollowMapper;
+
+    @Autowired
+    private UserProfileMapper userProfileMapper;
 
     @Override
     public User login(String account, String rawPassword) {
@@ -78,6 +84,62 @@ public class UserServiceImpl implements UserService {
         user.setStatus(0);
         userMapper.insert(user);
         return user;
+    }
+
+    @Override
+    public Map<String, Object> updateUserByAdmin(Long id, String username, String email, Integer role,
+                                                 String nickname, String bio, String newPassword) {
+        Map<String, Object> result = new HashMap<>();
+        if (id == null) {
+            result.put("success", false);
+            result.put("message", "用户 id 不能为空");
+            return result;
+        }
+        if (username == null || username.isBlank()) {
+            result.put("success", false);
+            result.put("message", "用户名不能为空");
+            return result;
+        }
+        if (email == null || email.isBlank()) {
+            result.put("success", false);
+            result.put("message", "邮箱不能为空");
+            return result;
+        }
+        User current = userMapper.selectById(id);
+        if (current == null) {
+            result.put("success", false);
+            result.put("message", "用户不存在");
+            return result;
+        }
+        String u = username.trim();
+        String em = email.trim();
+        if (UserConstants.isReservedSystemNoticeName(u)) {
+            result.put("success", false);
+            result.put("message", "该用户名为系统保留，不可使用");
+            return result;
+        }
+        User otherName = userMapper.selectByUsername(u);
+        if (otherName != null && !otherName.getId().equals(id)) {
+            result.put("success", false);
+            result.put("message", "用户名已被占用");
+            return result;
+        }
+        User otherEmail = userMapper.selectByEmail(em);
+        if (otherEmail != null && !otherEmail.getId().equals(id)) {
+            result.put("success", false);
+            result.put("message", "邮箱已被占用");
+            return result;
+        }
+        int r = role != null && role == 1 ? 1 : 0;
+        userMapper.updateUserBasic(id, u, em, r);
+        String nick = (nickname == null || nickname.isBlank()) ? null : nickname.trim();
+        String bioStr = (bio == null || bio.isBlank()) ? null : bio.trim();
+        userProfileMapper.upsertProfile(id, nick, bioStr, null);
+        if (newPassword != null && !newPassword.isBlank()) {
+            userMapper.updatePasswordById(id, newPassword.trim(), null);
+        }
+        result.put("success", true);
+        return result;
     }
 
     @Override
