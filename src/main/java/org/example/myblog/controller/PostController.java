@@ -321,7 +321,7 @@ public class PostController {
             );
             boolean hasVideo = req.getVideoUrl() != null && !req.getVideoUrl().isBlank();
             boolean hasCover = req.getVideoCoverUrl() != null && !req.getVideoCoverUrl().isBlank();
-            if (hasVideo && !hasCover && created != null && created.getId() != null && isFfmpegAvailable()) {
+            if (hasVideo && !hasCover && created != null && created.getId() != null) {
                 videoProcessingService.enqueueExtractFirstFrameCover(created.getId(), req.getVideoUrl());
             }
             return created;
@@ -501,13 +501,16 @@ public class PostController {
     /**
      * 上传视频（发帖用）
      * POST /post/uploadVideo，form-data: file
-     * 返回：/post_video/xxx.mp4
+     * 返回 JSON：{ "videoUrl": "/post_video/xxx.mp4", "coverUrl": "/post_img/yyy.jpg" }；
+     * coverUrl 在服务器已安装 ffmpeg 且截帧成功时存在（客户端可不自己截封面）。
      */
     @PostMapping("/uploadVideo")
     @ResponseBody
-    public String uploadVideo(@RequestParam("file") MultipartFile file) throws IOException {
+    public Map<String, Object> uploadVideo(@RequestParam("file") MultipartFile file) throws IOException {
+        Map<String, Object> out = new HashMap<>();
         if (file.isEmpty()) {
-            return "";
+            out.put("videoUrl", "");
+            return out;
         }
         Path uploadDir = resolveUploadDir("post_video");
         Files.createDirectories(uploadDir);
@@ -522,15 +525,22 @@ public class PostController {
             ext = original.substring(original.lastIndexOf("."));
         }
 
-        // fallback：永远能返回一个可用视频文件
         String fallbackFileName = UUID.randomUUID() + (ext != null && !ext.isBlank() ? ext : ".mp4");
         Path fallbackTarget = uploadDir.resolve(fallbackFileName);
         file.transferTo(fallbackTarget);
         String videoUrl = "/post_video/" + fallbackFileName;
-        if (shouldTranscode && isFfmpegAvailable()) {
-            videoProcessingService.enqueueTranscode(videoUrl);
+        out.put("videoUrl", videoUrl);
+
+        if (isFfmpegAvailable()) {
+            String coverRel = videoProcessingService.extractCoverToPostImgDir(fallbackTarget);
+            if (coverRel != null && !coverRel.isBlank()) {
+                out.put("coverUrl", coverRel);
+            }
+            if (shouldTranscode) {
+                videoProcessingService.enqueueTranscode(videoUrl);
+            }
         }
-        return videoUrl;
+        return out;
     }
 }
 

@@ -99,23 +99,25 @@ public class VideoProcessingService {
         }
     }
 
-    @Async("ffmpegExecutor")
-    public void enqueueExtractFirstFrameCover(Long postId, String videoUrl) {
-        if (postId == null) return;
-        Path videoPath = resolveVideoPath(videoUrl);
-        if (videoPath == null) return;
+    /**
+     * 从已落盘视频文件截取一帧为 JPG 写入 post_img，返回相对路径如 /post_img/xxx.jpg；失败返回 null。
+     * 用于上传视频后立即出封面（发帖前即可带回 coverUrl），与异步补封面共用逻辑。
+     */
+    public String extractCoverToPostImgDir(Path videoPath) {
+        if (videoPath == null) return null;
         try {
-            if (!Files.exists(videoPath) || Files.size(videoPath) <= 0) return;
+            if (!Files.exists(videoPath) || Files.size(videoPath) <= 0) return null;
             Path imageDir = resolveUploadDir("post_img");
             Files.createDirectories(imageDir);
             String coverName = UUID.randomUUID() + ".jpg";
             Path coverPath = imageDir.resolve(coverName).toAbsolutePath().normalize();
             Path ffmpegLog = Files.createTempFile("ffmpeg-cover-", ".log");
 
+            // -ss 放在 -i 前：快速定位；0.1s 兼顾极短视频，减少纯黑首帧
             ProcessBuilder pb = new ProcessBuilder(
                     ffmpegBin,
                     "-y",
-                    "-ss", "00:00:00",
+                    "-ss", "0.1",
                     "-i", videoPath.toString(),
                     "-frames:v", "1",
                     "-q:v", "3",
@@ -130,12 +132,28 @@ public class VideoProcessingService {
                 try {
                     p.destroyForcibly();
                     p.waitFor(3, TimeUnit.SECONDS);
-                } catch (Exception ignore) {}
-                return;
+                } catch (Exception ignore) {
+                }
+                Files.deleteIfExists(coverPath);
+                return null;
             }
-            if (p.exitValue() != 0 || !Files.exists(coverPath) || Files.size(coverPath) <= 0) return;
-            postMediaMapper.updateVideoCoverIfMissing(postId, "/post_img/" + coverName);
+            if (p.exitValue() != 0 || !Files.exists(coverPath) || Files.size(coverPath) <= 0) {
+                Files.deleteIfExists(coverPath);
+                return null;
+            }
+            return "/post_img/" + coverName;
         } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    @Async("ffmpegExecutor")
+    public void enqueueExtractFirstFrameCover(Long postId, String videoUrl) {
+        if (postId == null) return;
+        Path videoPath = resolveVideoPath(videoUrl);
+        String coverRel = extractCoverToPostImgDir(videoPath);
+        if (coverRel != null && !coverRel.isBlank()) {
+            postMediaMapper.updateVideoCoverIfMissing(postId, coverRel);
         }
     }
 }
