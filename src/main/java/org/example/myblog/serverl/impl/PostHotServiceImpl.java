@@ -9,6 +9,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -32,13 +34,48 @@ public class PostHotServiceImpl implements PostHotService {
     private static final String ZSET_KEY = "zset:post:hot";
     private static final String READ50_COUNT_PREFIX = "post:read50:count:";
     private static final String READ90_COUNT_PREFIX = "post:read90:count:";
+    /** 全站按日 PV（每次帖子详情 incrementView +1），供管理端「今日访问量」 */
+    private static final String SITE_VIEWS_DAY_PREFIX = "dashboard:site:views:";
 
     @Override
     public void incrementView(Long postId) {
         if (postId == null) return;
         String key = VIEW_PREFIX + postId;
         redisTemplate.opsForValue().increment(key, 1);
+        incrementSiteDailyViews();
         recalculateHotScore(postId);
+    }
+
+    private void incrementSiteDailyViews() {
+        try {
+            ZoneId z = ZoneId.systemDefault();
+            String dayKey = SITE_VIEWS_DAY_PREFIX + LocalDate.now(z);
+            Long n = redisTemplate.opsForValue().increment(dayKey, 1);
+            if (n != null && n == 1L) {
+                redisTemplate.expire(dayKey, Duration.ofDays(10));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    public long getSiteViewsForToday() {
+        return getSiteViewsForDate(LocalDate.now(ZoneId.systemDefault()));
+    }
+
+    @Override
+    public long getSiteViewsForYesterday() {
+        return getSiteViewsForDate(LocalDate.now(ZoneId.systemDefault()).minusDays(1));
+    }
+
+    private long getSiteViewsForDate(LocalDate date) {
+        try {
+            String key = SITE_VIEWS_DAY_PREFIX + date;
+            String val = redisTemplate.opsForValue().get(key);
+            return val != null ? Long.parseLong(val) : 0L;
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     @Override

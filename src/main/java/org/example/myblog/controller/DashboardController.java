@@ -3,6 +3,7 @@ package org.example.myblog.controller;
 import org.example.myblog.mapper.CommentMapper;
 import org.example.myblog.mapper.PostMapper;
 import org.example.myblog.mapper.ReportMapper;
+import org.example.myblog.serverl.PostHotService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,6 +34,9 @@ public class DashboardController {
     @Autowired
     private ReportMapper reportMapper;
 
+    @Autowired(required = false)
+    private PostHotService postHotService;
+
     /**
      * 获取仪表盘统计数据
      * GET /dashboard/stats
@@ -44,7 +48,10 @@ public class DashboardController {
         result.put("postCount", postMapper.countAll());
         result.put("commentCount", commentMapper.countAll());
         result.put("totalViewCount", postMapper.sumViewCount());
-        result.put("todayViewCount", postMapper.sumViewCount()); // 今日访问量：暂无日度统计，先用总浏览量
+        long todayPv = postHotService != null ? postHotService.getSiteViewsForToday() : 0L;
+        long yesterdayPv = postHotService != null ? postHotService.getSiteViewsForYesterday() : 0L;
+        result.put("todayViewCount", todayPv);
+        result.put("yesterdayViewCount", yesterdayPv);
         result.put("todayNewCount", postMapper.countTodayNew());
         result.put("pendingPostCount", postMapper.countPending()); // 待审核帖子（status=1 审核中）
         result.put("yesterdayPostCount", postMapper.countYesterdayNew());

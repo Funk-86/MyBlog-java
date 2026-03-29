@@ -1,7 +1,5 @@
 package org.example.myblog.serverl;
 
-import org.example.myblog.entiy.Post;
-
 import java.util.List;
 
 /**
@@ -28,4 +26,14 @@ public interface PostHotService {
      * 定时任务：将 Redis 浏览量同步到 MySQL，并全量重算 hot_score 更新到 ZSet
      */
     void syncViewCountAndRefreshHot();
+
+    /**
+     * 管理端仪表盘：今日全站帖子浏览次数（按日聚合，与 incrementView 次数一致）
+     */
+    long getSiteViewsForToday();
+
+    /**
+     * 管理端仪表盘：昨日全站帖子浏览次数
+     */
+    long getSiteViewsForYesterday();
 }
