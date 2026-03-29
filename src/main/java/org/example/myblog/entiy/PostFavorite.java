@@ -30,6 +30,9 @@ public class PostFavorite {
     @Column(name = "post_id", nullable = false)
     private Long postId;
 
+    @Column(name = "folder_id", nullable = false)
+    private Long folderId;
+
     /**
      * 收藏时间
      */

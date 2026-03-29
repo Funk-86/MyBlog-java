@@ -290,9 +290,11 @@ public interface PostMapper {
     List<Post> listByUserId(@Param("userId") Long userId, @Param("offset") int offset, @Param("limit") int limit);
 
     /**
-     * 用户收藏的帖子列表（含分类、视频，与首页展示一致）
+     * 用户收藏的帖子列表（含分类、视频，与首页展示一致）。
+     * folderId 为 null 时返回全部收藏（「内容」Tab）；非 null 时仅该收藏夹内帖子。
      */
     @Select("""
+            <script>
             SELECT p.id, p.user_id AS userId, p.title, p.content, p.type, p.status,
                    p.like_count AS likeCount, p.comment_count AS commentCount, p.view_count AS viewCount,
                    p.created_at AS createdAt,
@@ -318,10 +320,15 @@ public interface PostMapper {
             LEFT JOIN category c1 ON c1.id = p.category_id_1
             LEFT JOIN category c2 ON c2.id = p.category_id_2
             WHERE pf.user_id = #{userId}
+            <if test="folderId != null">AND pf.folder_id = #{folderId}</if>
             ORDER BY pf.created_at DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
-    List<Post> listByUserFavorites(@Param("userId") Long userId, @Param("offset") int offset, @Param("limit") int limit);
+    List<Post> listByUserFavorites(@Param("userId") Long userId,
+                                   @Param("folderId") Long folderId,
+                                   @Param("offset") int offset,
+                                   @Param("limit") int limit);
 
     /**
      * 用户点赞的帖子列表（含分类、视频，与首页展示一致）

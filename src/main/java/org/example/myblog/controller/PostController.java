@@ -262,13 +262,15 @@ public class PostController {
 
     /**
      * 用户收藏的帖子列表 GET /post/favorites?userId=1&page=1&size=20
+     * 可选 folderId：不传则全部收藏（「内容」）；传则仅该收藏夹内帖子
      */
     @GetMapping("/favorites")
     @ResponseBody
     public List<Post> favoritePosts(@RequestParam("userId") Long userId,
+                                    @RequestParam(value = "folderId", required = false) Long folderId,
                                     @RequestParam(value = "page", defaultValue = "1") int page,
                                     @RequestParam(value = "size", defaultValue = "20") int size) {
-        return postService.listFavoritePosts(userId, page, size);
+        return postService.listFavoritePosts(userId, folderId, page, size);
     }
 
     /**
@@ -413,15 +415,41 @@ public class PostController {
 
     /**
      * 帖子收藏
-     * POST /post/favorite?postId=1&userId=1
+     * POST /post/favorite?postId=1&userId=1 可选 folderId（不传则默认收藏夹）
      */
     @PostMapping("/favorite")
     @ResponseBody
     public Map<String, Object> favorite(@RequestParam("postId") Long postId,
-                                        @RequestParam("userId") Long userId) {
-        postService.favoritePost(postId, userId);
+                                        @RequestParam("userId") Long userId,
+                                        @RequestParam(value = "folderId", required = false) Long folderId) {
         Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
+        try {
+            postService.favoritePost(postId, userId, folderId);
+            result.put("success", true);
+        } catch (IllegalArgumentException e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * 将已收藏帖子移到其他收藏夹
+     * POST /post/favorite/move?postId=1&userId=1&folderId=2
+     */
+    @PostMapping("/favorite/move")
+    @ResponseBody
+    public Map<String, Object> moveFavorite(@RequestParam("postId") Long postId,
+                                            @RequestParam("userId") Long userId,
+                                            @RequestParam("folderId") Long folderId) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            postService.moveFavoritePost(postId, userId, folderId);
+            result.put("success", true);
+        } catch (IllegalArgumentException e) {
+            result.put("success", false);
+            result.put("message", e.getMessage());
+        }
         return result;
     }
 

@@ -6,12 +6,22 @@ import org.apache.ibatis.annotations.*;
 public interface PostFavoriteMapper {
 
     @Insert("""
-            INSERT INTO post_favorite (user_id, post_id, created_at)
-            VALUES (#{userId}, #{postId}, #{createdAt})
+            INSERT INTO post_favorite (user_id, post_id, folder_id, created_at)
+            VALUES (#{userId}, #{postId}, #{folderId}, #{createdAt})
             """)
     int insert(@Param("userId") Long userId,
                @Param("postId") Long postId,
+               @Param("folderId") Long folderId,
                @Param("createdAt") java.time.LocalDateTime createdAt);
+
+    @Update("""
+            UPDATE post_favorite
+            SET folder_id = #{folderId}
+            WHERE user_id = #{userId} AND post_id = #{postId}
+            """)
+    int updateFolderId(@Param("userId") Long userId,
+                       @Param("postId") Long postId,
+                       @Param("folderId") Long folderId);
 
     @Delete("""
             DELETE FROM post_favorite

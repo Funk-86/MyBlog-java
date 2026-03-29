@@ -13,6 +13,7 @@ import org.example.myblog.mapper.PostMediaMapper;
 import org.example.myblog.mapper.TopicMapper;
 import org.example.myblog.mapper.UserMapper;
 import org.example.myblog.serverl.ChatService;
+import org.example.myblog.serverl.FavoriteFolderService;
 import org.example.myblog.serverl.AliyunGreenService;
 import org.example.myblog.serverl.ContentModerationService;
 import org.example.myblog.serverl.PostBehaviorService;
@@ -52,6 +53,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private PostFavoriteMapper postFavoriteMapper;
+
+    @Autowired
+    private FavoriteFolderService favoriteFolderService;
 
     @Autowired(required = false)
     private PostHotService postHotService;
@@ -259,11 +263,27 @@ public class PostServiceImpl implements PostService {
 
     @Override
     @Transactional
-    public void favoritePost(Long postId, Long userId) {
+    public void favoritePost(Long postId, Long userId, Long folderId) {
         if (postId == null || userId == null) return;
         if (postFavoriteMapper.countByUserAndPost(userId, postId) > 0) return;
-        postFavoriteMapper.insert(userId, postId, LocalDateTime.now());
+        long fid;
+        if (folderId != null) {
+            favoriteFolderService.assertFolderOwnedByUser(userId, folderId);
+            fid = folderId;
+        } else {
+            fid = favoriteFolderService.getOrCreateDefaultFolderId(userId);
+        }
+        postFavoriteMapper.insert(userId, postId, fid, LocalDateTime.now());
         postMapper.incrementFavoriteCount(postId);
+    }
+
+    @Override
+    @Transactional
+    public void moveFavoritePost(Long postId, Long userId, Long targetFolderId) {
+        if (postId == null || userId == null || targetFolderId == null) return;
+        if (postFavoriteMapper.countByUserAndPost(userId, postId) == 0) return;
+        favoriteFolderService.assertFolderOwnedByUser(userId, targetFolderId);
+        postFavoriteMapper.updateFolderId(userId, postId, targetFolderId);
     }
 
     @Override
@@ -354,12 +374,15 @@ public class PostServiceImpl implements PostService {
     }
 
     @Override
-    public List<Post> listFavoritePosts(Long userId, int page, int size) {
+    public List<Post> listFavoritePosts(Long userId, Long folderId, int page, int size) {
         if (userId == null) return List.of();
+        if (folderId != null && !favoriteFolderService.isFolderOwnedByUser(userId, folderId)) {
+            return List.of();
+        }
         if (size <= 0) size = 20;
         if (size > 50) size = 50;
         int offset = (page <= 0 ? 0 : page - 1) * size;
-        return postMapper.listByUserFavorites(userId, offset, size);
+        return postMapper.listByUserFavorites(userId, folderId, offset, size);
     }
 
     @Override

@@ -68,8 +68,14 @@ public interface PostService {
     /** 取消帖子点赞 */
     void unlikePost(Long postId, Long userId);
 
-    /** 帖子收藏 */
-    void favoritePost(Long postId, Long userId);
+    /**
+     * 帖子收藏
+     * @param folderId 可为 null，表示放入「默认收藏夹」（不存在时会自动创建）
+     */
+    void favoritePost(Long postId, Long userId, Long folderId);
+
+    /** 将已收藏的帖子移到指定收藏夹 */
+    void moveFavoritePost(Long postId, Long userId, Long targetFolderId);
 
     /** 取消帖子收藏 */
     void unfavoritePost(Long postId, Long userId);
@@ -99,8 +105,11 @@ public interface PostService {
      */
     List<Post> listByUserId(Long userId, int page, int size);
 
-    /** 用户收藏的帖子列表 */
-    List<Post> listFavoritePosts(Long userId, int page, int size);
+    /**
+     * 用户收藏的帖子列表
+     * @param folderId 为 null 时返回全部收藏（「内容」）；否则仅该夹内（需属于该用户，否则返回空列表）
+     */
+    List<Post> listFavoritePosts(Long userId, Long folderId, int page, int size);
 
     /** 用户点赞的帖子列表 */
     List<Post> listLikedPosts(Long userId, int page, int size);
