@@ -1,6 +1,7 @@
 package org.example.myblog.mapper;
 
 import org.apache.ibatis.annotations.*;
+import org.example.myblog.dto.HotTitleDTO;
 import org.example.myblog.entiy.Post;
 
 import java.util.List;
