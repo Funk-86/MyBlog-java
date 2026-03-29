@@ -173,12 +173,13 @@ public class PostController {
 
     /**
      * 管理端：帖子列表（带总数，用于表格分页）
-     * GET /post/admin/list?page=1&size=10[&categoryId=2][&year=2026][&month=3][&keyword=xxx]
+     * GET /post/admin/list?page=1&size=10[&status=0][&categoryId=2][&year=2026][&month=3][&keyword=xxx]
      */
     @GetMapping("/admin/list")
     @ResponseBody
     public Map<String, Object> adminPostList(@RequestParam(value = "page", defaultValue = "1") int page,
                                              @RequestParam(value = "size", defaultValue = "10") int size,
+                                             @RequestParam(value = "status", required = false) Integer status,
                                              @RequestParam(value = "categoryId", required = false) Long categoryId,
                                              @RequestParam(value = "year", required = false) Integer year,
                                              @RequestParam(value = "month", required = false) Integer month,
@@ -197,8 +198,11 @@ public class PostController {
         if (month != null && (month < 1 || month > 12)) {
             month = null;
         }
-        List<Post> list = postMapper.listAdminPostPage(offset, size, categoryId, year, month, kw);
-        long total = postMapper.countAdminPostPage(categoryId, year, month, kw);
+        if (status != null && (status < 0 || status > 3)) {
+            status = null;
+        }
+        List<Post> list = postMapper.listAdminPostPage(offset, size, status, categoryId, year, month, kw);
+        long total = postMapper.countAdminPostPage(status, categoryId, year, month, kw);
         Map<String, Object> result = new HashMap<>();
         result.put("list", list);
         result.put("total", total);

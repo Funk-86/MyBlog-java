@@ -799,7 +799,7 @@ public interface PostMapper {
     List<Map<String, Object>> listCategoryPostCount();
 
     /**
-     * 管理端帖子列表：按发布时间倒序，支持分类 / 年 / 月 / 标题或正文关键词
+     * 管理端帖子列表：按发布时间倒序，支持状态 / 分类 / 年 / 月 / 标题或正文关键词
      */
     @Select("""
             <script>
@@ -839,6 +839,9 @@ public interface PostMapper {
               GROUP BY pt.post_id
             ) tp ON tp.post_id = p.id
             WHERE 1 = 1
+            <if test="status != null">
+              AND p.status = #{status}
+            </if>
             <if test="categoryId != null">
               AND (p.category_id_1 = #{categoryId} OR p.category_id_2 = #{categoryId})
             </if>
@@ -857,6 +860,7 @@ public interface PostMapper {
             """)
     List<Post> listAdminPostPage(@Param("offset") int offset,
                                  @Param("limit") int limit,
+                                 @Param("status") Integer status,
                                  @Param("categoryId") Long categoryId,
                                  @Param("year") Integer year,
                                  @Param("month") Integer month,
@@ -866,6 +870,9 @@ public interface PostMapper {
             <script>
             SELECT COUNT(*) FROM post p
             WHERE 1 = 1
+            <if test="status != null">
+              AND p.status = #{status}
+            </if>
             <if test="categoryId != null">
               AND (p.category_id_1 = #{categoryId} OR p.category_id_2 = #{categoryId})
             </if>
@@ -880,7 +887,8 @@ public interface PostMapper {
             </if>
             </script>
             """)
-    long countAdminPostPage(@Param("categoryId") Long categoryId,
+    long countAdminPostPage(@Param("status") Integer status,
+                            @Param("categoryId") Long categoryId,
                             @Param("year") Integer year,
                             @Param("month") Integer month,
                             @Param("keyword") String keyword);
