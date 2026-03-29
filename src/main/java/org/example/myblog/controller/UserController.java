@@ -60,14 +60,15 @@ public class UserController {
 
     /**
      * 管理端：用户列表（带总数，与帖子管理列表分页一致）
-     * GET /user/admin/list?page=1&size=20&keyword=xxx
+     * GET /user/admin/list?page=1&size=20&keyword=xxx&userStatus=0 可选 userStatus：0正常 1封禁 2注销
      */
     @GetMapping("/admin/list")
     @ResponseBody
     public Map<String, Object> adminUserList(
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size,
-            @RequestParam(value = "keyword", required = false) String keyword) {
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "userStatus", required = false) Integer userStatus) {
         if (size <= 0) {
             size = 20;
         }
@@ -79,10 +80,11 @@ public class UserController {
         if (kw != null && kw.isEmpty()) {
             kw = null;
         }
-        List<Map<String, Object>> list = kw != null
-                ? userMapper.listForAdminWithKeyword(offset, size, kw)
-                : userMapper.listForAdmin(offset, size);
-        long total = userMapper.countForAdmin(kw);
+        if (userStatus != null && (userStatus < 0 || userStatus > 2)) {
+            userStatus = null;
+        }
+        List<Map<String, Object>> list = userMapper.listForAdminFiltered(offset, size, kw, userStatus);
+        long total = userMapper.countForAdminFiltered(kw, userStatus);
         Map<String, Object> result = new HashMap<>();
         result.put("list", list);
         result.put("total", total);
@@ -150,7 +152,8 @@ public class UserController {
         String nickname = body.get("nickname") != null ? body.get("nickname").toString() : null;
         String bio = body.get("bio") != null ? body.get("bio").toString() : null;
         String password = body.get("password") != null ? body.get("password").toString() : null;
-        return userService.updateUserByAdmin(id, username, email, role, nickname, bio, password);
+        String avatarUrl = body.get("avatarUrl") != null ? body.get("avatarUrl").toString() : null;
+        return userService.updateUserByAdmin(id, username, email, role, nickname, bio, password, avatarUrl);
     }
 
     /**
@@ -217,18 +220,15 @@ public class UserController {
                       @RequestParam("password") String password) {
         User user = userService.login(account, password);
         if (user == null) return null;
+        // 封禁期内仍允许登录以便浏览；仅发帖/评论在后端拦截。封禁到期自动恢复。
         if (user.getStatus() != null && user.getStatus() == 1) {
             java.time.LocalDateTime now = LocalDateTime.now();
             java.time.LocalDateTime until = user.getBannedUntil();
-            if (until == null) {
-                throw new IllegalStateException("账号已被永久封禁");
+            if (until != null && now.isAfter(until)) {
+                userMapper.updateStatus(user.getId(), 0);
+                user.setStatus(0);
+                user.setBannedUntil(null);
             }
-            if (now.isBefore(until)) {
-                throw new IllegalStateException("账号已封禁至 " + until);
-            }
-            userMapper.updateStatus(user.getId(), 0);
-            user.setStatus(0);
-            user.setBannedUntil(null);
         }
         return user;
     }

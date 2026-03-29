@@ -20,6 +20,7 @@ import org.example.myblog.serverl.ContentModerationService;
 import org.example.myblog.serverl.PostBehaviorService;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
+import org.example.myblog.serverl.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
@@ -93,6 +94,9 @@ public class PostServiceImpl implements PostService {
     @Autowired(required = false)
     private PostBehaviorService postBehaviorService;
 
+    @Autowired
+    private UserService userService;
+
     private Long resolveSystemNoticeUserId() {
         if (userMapper == null) return null;
         try {
@@ -109,6 +113,7 @@ public class PostServiceImpl implements PostService {
                            Integer type,
                            Long categoryId1,
                            Long categoryId2) {
+        userService.assertUserCanPostOrComment(userId);
         Post post = new Post();
         post.setUserId(userId);
         post.setContent(content);
@@ -165,6 +170,7 @@ public class PostServiceImpl implements PostService {
                                      String videoCoverUrl,
                                      Integer videoDurationSeconds,
                                      Integer visibility) {
+        userService.assertUserCanPostOrComment(userId);
         // 本地敏感词分级策略：高风险拦截，中风险人工审核，低风险提醒
         String toCheck = ((title == null ? "" : title) + "\n" + (content == null ? "" : content)).trim();
         ContentModerationService.ModerationResult reviewResult =

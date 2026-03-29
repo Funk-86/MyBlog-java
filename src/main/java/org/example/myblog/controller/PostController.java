@@ -100,16 +100,31 @@ public class PostController {
     }
 
     /**
-     * 管理端：待审核帖子列表（status=1）
-     * GET /post/admin/pending?page=1&size=20
+     * 管理端：审核列表（含已通过/审核中/AI拦截，分页与帖子列表一致）
+     * GET /post/admin/pending?page=1&size=20&status=1 可选 status：0已通过 1审核中 3AI拦截
      */
     @GetMapping("/admin/pending")
     @ResponseBody
-    public List<Map<String, Object>> adminPendingPosts(
+    public Map<String, Object> adminPendingPosts(
             @RequestParam(value = "page", defaultValue = "1") int page,
-            @RequestParam(value = "size", defaultValue = "20") int size) {
-        int offset = (page - 1) * size;
-        return postMapper.listPendingPosts(offset, size);
+            @RequestParam(value = "size", defaultValue = "20") int size,
+            @RequestParam(value = "status", required = false) Integer status) {
+        if (size <= 0) {
+            size = 20;
+        }
+        if (size > 100) {
+            size = 100;
+        }
+        int offset = Math.max(0, page - 1) * size;
+        if (status != null && status != 0 && status != 1 && status != 3) {
+            status = null;
+        }
+        List<Map<String, Object>> list = postMapper.listPendingPosts(offset, size, status);
+        long total = postMapper.countPendingAdminList(status);
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", list);
+        result.put("total", total);
+        return result;
     }
 
     /**
@@ -382,6 +397,14 @@ public class PostController {
                 result.put("success", false);
                 result.put("code", "POST_REVIEW_REQUIRED");
                 result.put("message", "帖子内容疑似风险，已进入人工审核");
+                return result;
+            }
+            String msg = e.getMessage();
+            if (msg != null && msg.startsWith("USER_BANNED:")) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", false);
+                result.put("code", "USER_BANNED");
+                result.put("message", msg.substring("USER_BANNED:".length()));
                 return result;
             }
             throw e;

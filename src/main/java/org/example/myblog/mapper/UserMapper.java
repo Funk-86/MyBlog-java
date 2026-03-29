@@ -160,6 +160,8 @@ public interface UserMapper {
                 u.id,
                 u.username,
                 u.email,
+                u.status,
+                u.banned_until AS bannedUntil,
                 DATE_FORMAT(u.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
                 up.nickname,
                 up.avatar_url      AS avatarUrl,
@@ -200,20 +202,7 @@ public interface UserMapper {
     UserSpaceDTO selectUserSpace(@Param("userId") Long userId);
 
     /**
-     * 管理端：用户列表
-     */
-    @Select("""
-            SELECT u.id, u.username, u.email, u.role, u.status, u.banned_until AS bannedUntil, u.created_at AS createdAt,
-                   up.nickname, up.bio, up.avatar_url AS avatarUrl
-            FROM `user` u
-            LEFT JOIN user_profile up ON up.user_id = u.id
-            ORDER BY u.id DESC
-            LIMIT #{limit} OFFSET #{offset}
-            """)
-    List<Map<String, Object>> listForAdmin(@Param("offset") int offset, @Param("limit") int limit);
-
-    /**
-     * 管理端：用户列表（按关键词搜索用户名、昵称、邮箱）
+     * 管理端：用户列表（可选关键词、可选 userStatus：0正常 1封禁 2注销）
      */
     @Select("""
             <script>
@@ -227,15 +216,19 @@ public interface UserMapper {
                  OR up.nickname LIKE CONCAT('%', #{keyword}, '%')
                  OR u.email LIKE CONCAT('%', #{keyword}, '%'))
               </if>
+              <if test="userStatus != null">
+                AND u.status = #{userStatus}
+              </if>
             </where>
             ORDER BY u.id DESC
             LIMIT #{limit} OFFSET #{offset}
             </script>
             """)
-    List<Map<String, Object>> listForAdminWithKeyword(@Param("offset") int offset, @Param("limit") int limit, @Param("keyword") String keyword);
+    List<Map<String, Object>> listForAdminFiltered(@Param("offset") int offset, @Param("limit") int limit,
+                                                     @Param("keyword") String keyword, @Param("userStatus") Integer userStatus);
 
     /**
-     * 管理端：用户总数（条件与 {@link #listForAdmin} / {@link #listForAdminWithKeyword} 一致，keyword 为空则全表计数）
+     * 管理端：用户总数（与 {@link #listForAdminFiltered} 条件一致）
      */
     @Select("""
             <script>
@@ -247,10 +240,13 @@ public interface UserMapper {
                  OR up.nickname LIKE CONCAT('%', #{keyword}, '%')
                  OR u.email LIKE CONCAT('%', #{keyword}, '%'))
               </if>
+              <if test="userStatus != null">
+                AND u.status = #{userStatus}
+              </if>
             </where>
             </script>
             """)
-    long countForAdmin(@Param("keyword") String keyword);
+    long countForAdminFiltered(@Param("keyword") String keyword, @Param("userStatus") Integer userStatus);
 
     /**
      * 管理端：更新用户状态（0正常 2注销），并清空 banned_until

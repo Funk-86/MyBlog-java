@@ -5,6 +5,8 @@ import org.example.myblog.dto.FollowUserDTO;
 import org.example.myblog.dto.UserSpaceDTO;
 import org.example.myblog.entiy.User;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,8 +89,43 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public void assertUserCanPostOrComment(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId 不能为空");
+        }
+        User u = userMapper.selectById(userId);
+        if (u == null) {
+            throw new RuntimeException("USER_NOT_FOUND");
+        }
+        if (u.getStatus() == null || u.getStatus() != 1) {
+            return;
+        }
+        LocalDateTime until = u.getBannedUntil();
+        LocalDateTime now = LocalDateTime.now();
+        if (until != null && now.isAfter(until)) {
+            userMapper.updateStatus(userId, 0);
+            return;
+        }
+        String detail;
+        if (until == null) {
+            detail = "您的账号已被永久封禁，暂时无法发帖或评论，仍可浏览内容。";
+        } else {
+            long days = ChronoUnit.DAYS.between(now.toLocalDate(), until.toLocalDate());
+            if (days < 0) {
+                days = 0;
+            }
+            if (days <= 0) {
+                detail = "您的账号仍在封禁中，将于今日内解封，暂时无法发帖或评论，仍可浏览内容。";
+            } else {
+                detail = "您的账号已被封禁，剩余解封时间还有约 " + days + " 天，暂时无法发帖或评论，仍可浏览内容。";
+            }
+        }
+        throw new RuntimeException("USER_BANNED:" + detail);
+    }
+
+    @Override
     public Map<String, Object> updateUserByAdmin(Long id, String username, String email, Integer role,
-                                                 String nickname, String bio, String newPassword) {
+                                                 String nickname, String bio, String newPassword, String avatarUrl) {
         Map<String, Object> result = new HashMap<>();
         if (id == null) {
             result.put("success", false);
@@ -135,6 +172,9 @@ public class UserServiceImpl implements UserService {
         String nick = (nickname == null || nickname.isBlank()) ? null : nickname.trim();
         String bioStr = (bio == null || bio.isBlank()) ? null : bio.trim();
         userProfileMapper.upsertProfile(id, nick, bioStr, null);
+        if (avatarUrl != null && !avatarUrl.isBlank()) {
+            userProfileMapper.upsertAvatar(id, avatarUrl.trim());
+        }
         if (newPassword != null && !newPassword.isBlank()) {
             userMapper.updatePasswordById(id, newPassword.trim(), null);
         }

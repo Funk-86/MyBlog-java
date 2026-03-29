@@ -50,7 +50,14 @@ public class CommentController {
                 result.put("code", "COMMENT_REVIEW_REQUIRED");
                 result.put("message", "评论内容疑似风险，已进入人工审核");
             } else {
-                throw e;
+                String msg = e.getMessage();
+                if (msg != null && msg.startsWith("USER_BANNED:")) {
+                    result.put("success", false);
+                    result.put("code", "USER_BANNED");
+                    result.put("message", msg.substring("USER_BANNED:".length()));
+                } else {
+                    throw e;
+                }
             }
         }
         return result;

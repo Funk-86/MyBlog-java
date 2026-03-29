@@ -32,7 +32,7 @@ public class CommentServiceImpl implements CommentService {
 
     @Autowired
     private PostMapper postMapper;
-    @Autowired(required = false)
+    @Autowired
     private UserService userService;
     @Autowired(required = false)
     private RedisTemplate<String, String> redisTemplate;
@@ -43,6 +43,7 @@ public class CommentServiceImpl implements CommentService {
     @Override
     @Transactional
     public Comment createComment(Long postId, Long userId, String content, Long parentId, Long rootId) {
+        userService.assertUserCanPostOrComment(userId);
         // 本地敏感词分级策略：高风险拦截，中风险人工审核，低风险提醒
         ContentModerationService.ModerationResult reviewResult =
                 contentModerationService != null ? contentModerationService.moderateText(content) : ContentModerationService.ModerationResult.none();

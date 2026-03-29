@@ -736,8 +736,9 @@ public interface PostMapper {
     @Select("SELECT COUNT(*) FROM post WHERE status = 1")
     long countPending();
 
-    /** 管理端：待审核/AI拦截/已通过帖子列表（status=0,1,3），按创建时间倒序 */
+    /** 管理端：待审核/AI拦截/已通过帖子列表（status=0,1,3），按创建时间倒序；可选仅某一 status */
     @Select("""
+            <script>
             SELECT p.id, p.user_id AS userId, p.title, p.category_id_1 AS categoryId1, p.category_id_2 AS categoryId2,
                    p.content, p.type, p.status, p.like_count AS likeCount, p.comment_count AS commentCount,
                    p.view_count AS viewCount, p.created_at AS createdAt, p.updated_at AS updatedAt,
@@ -747,11 +748,30 @@ public interface PostMapper {
             LEFT JOIN user_profile up ON up.user_id = p.user_id
             LEFT JOIN category c1 ON c1.id = p.category_id_1
             LEFT JOIN category c2 ON c2.id = p.category_id_2
-            WHERE p.status IN (0, 1, 3)
+            <where>
+              p.status IN (0, 1, 3)
+              <if test="status != null">
+                AND p.status = #{status}
+              </if>
+            </where>
             ORDER BY p.created_at DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
-    List<Map<String, Object>> listPendingPosts(@Param("offset") int offset, @Param("limit") int limit);
+    List<Map<String, Object>> listPendingPosts(@Param("offset") int offset, @Param("limit") int limit, @Param("status") Integer status);
+
+    @Select("""
+            <script>
+            SELECT COUNT(*) FROM post p
+            <where>
+              p.status IN (0, 1, 3)
+              <if test="status != null">
+                AND p.status = #{status}
+              </if>
+            </where>
+            </script>
+            """)
+    long countPendingAdminList(@Param("status") Integer status);
 
     /** 今日新增文章数 */
     @Select("SELECT COUNT(*) FROM post WHERE DATE(created_at) = CURDATE()")

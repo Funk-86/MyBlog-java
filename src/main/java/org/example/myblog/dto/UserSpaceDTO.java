@@ -2,6 +2,8 @@ package org.example.myblog.dto;
 
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 /**
  * 个人空间信息 DTO
  */
@@ -11,6 +13,11 @@ public class UserSpaceDTO {
     private Long id;
     private String username;
     private String email;
+
+    /** 0正常 1封禁 2注销；客户端用于展示封禁提示 */
+    private Integer status;
+    /** 封禁截止时间，null 表示永久封禁 */
+    private LocalDateTime bannedUntil;
 
     // 资料
     private String nickname;

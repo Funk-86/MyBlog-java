@@ -40,7 +40,12 @@ public interface UserService {
      * 管理端：更新用户基本信息与资料；password 为空或 null 表示不修改密码
      */
     Map<String, Object> updateUserByAdmin(Long id, String username, String email, Integer role,
-                                          String nickname, String bio, String newPassword);
+                                          String nickname, String bio, String newPassword, String avatarUrl);
+
+    /**
+     * 封禁用户不可发帖、评论；未封禁或封禁已过期则放行（过期会自动解封）
+     */
+    void assertUserCanPostOrComment(Long userId);
 
     /**
      * 通过邮箱 + 验证码重置密码
