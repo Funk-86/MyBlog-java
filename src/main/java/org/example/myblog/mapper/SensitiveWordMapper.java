@@ -20,6 +20,9 @@ public interface SensitiveWordMapper {
     @Select("SELECT COUNT(*) FROM sensitive_word")
     long countAll();
 
+    @Select("SELECT COUNT(*) FROM sensitive_word WHERE word = #{word}")
+    long countByWord(@Param("word") String word);
+
     @Select("SELECT id, word, level, status, created_at AS createdAt, updated_at AS updatedAt FROM sensitive_word ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}")
     List<SensitiveWord> listPaged(@Param("offset") int offset, @Param("limit") int limit);
 

@@ -5,7 +5,12 @@ import org.example.myblog.mapper.SensitiveWordMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +76,79 @@ public class SensitiveWordController {
         sw.setStatus(status);
         sensitiveWordMapper.insert(sw);
         return sw;
+    }
+
+    /**
+     * 管理端：从 txt 批量导入违禁词（UTF-8，每行一个或一行内逗号/分号分隔）
+     * POST /sensitive-word/import-txt  multipart: file, level(可选), status(可选)
+     * 返回：{ success, imported, duplicates, invalid }
+     */
+    @PostMapping("/import-txt")
+    @ResponseBody
+    public Map<String, Object> importFromTxt(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "level", defaultValue = "2") int level,
+            @RequestParam(value = "status", defaultValue = "0") int status) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("请上传 txt 文件");
+        }
+        if (level < 1 || level > 3) {
+            level = 2;
+        }
+        if (status != 0 && status != 1) {
+            status = 0;
+        }
+        final int maxTokens = 10000;
+        int imported = 0;
+        int duplicates = 0;
+        int invalid = 0;
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (imported + duplicates + invalid >= maxTokens) {
+                    break;
+                }
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                if (trimmed.startsWith("#")) {
+                    continue;
+                }
+                String[] parts = trimmed.split("[,，;；]");
+                for (String part : parts) {
+                    if (imported + duplicates + invalid >= maxTokens) {
+                        break;
+                    }
+                    String w = part.trim();
+                    if (w.isEmpty() || w.startsWith("#")) {
+                        continue;
+                    }
+                    if (w.length() > 100) {
+                        invalid++;
+                        continue;
+                    }
+                    if (sensitiveWordMapper.countByWord(w) > 0) {
+                        duplicates++;
+                        continue;
+                    }
+                    SensitiveWord sw = new SensitiveWord();
+                    sw.setWord(w);
+                    sw.setLevel(level);
+                    sw.setStatus(status);
+                    sensitiveWordMapper.insert(sw);
+                    imported++;
+                }
+            }
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("imported", imported);
+        result.put("duplicates", duplicates);
+        result.put("invalid", invalid);
+        return result;
     }
 
     /**
