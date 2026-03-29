@@ -97,6 +97,9 @@ public interface PostService {
     /** 管理端删除帖子（软删除 status=2，不校验作者） */
     void adminDeletePost(Long postId);
 
+    /** 管理端批量软删除 */
+    void adminDeletePosts(List<Long> postIds);
+
     /** 是否已赞该帖子 */
     boolean isPostLiked(Long postId, Long userId);
 

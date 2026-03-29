@@ -797,5 +797,103 @@ public interface PostMapper {
             ORDER BY value DESC
             """)
     List<Map<String, Object>> listCategoryPostCount();
+
+    /**
+     * 管理端帖子列表：按发布时间倒序，支持分类 / 年 / 月 / 标题或正文关键词
+     */
+    @Select("""
+            <script>
+            SELECT p.id, p.user_id AS userId, p.title, p.category_id_1 AS categoryId1, p.category_id_2 AS categoryId2,
+                   p.content, p.type, p.status, p.like_count AS likeCount, p.comment_count AS commentCount,
+                   p.share_count AS shareCount, p.view_count AS viewCount, p.favorite_count AS favoriteCount,
+                   p.hot_score AS hotScore, p.created_at AS createdAt, p.updated_at AS updatedAt,
+                   u.username, up.nickname, up.avatar_url AS avatarUrl, img.firstImageUrl, img.imageUrls,
+                   c1.name AS categoryName1, c2.name AS categoryName2,
+                   vid.firstVideoUrl, vid.cover_url AS first_video_cover_url, vid.firstVideoDuration,
+                   tp.topicNames AS topicNames
+            FROM post p
+            LEFT JOIN `user` u ON u.id = p.user_id
+            LEFT JOIN user_profile up ON up.user_id = p.user_id
+            LEFT JOIN (
+              SELECT pm.post_id,
+                MIN(CASE WHEN pm.media_type = 1 THEN pm.url END) AS firstImageUrl,
+                GROUP_CONCAT(CASE WHEN pm.media_type = 1 THEN pm.url END ORDER BY pm.sort_order SEPARATOR ',') AS imageUrls
+              FROM post_media pm GROUP BY pm.post_id
+            ) img ON img.post_id = p.id
+            LEFT JOIN (
+              SELECT post_id,
+                     MIN(url) AS firstVideoUrl,
+                     MIN(cover_url) AS cover_url,
+                     MIN(duration_sec) AS firstVideoDuration
+              FROM post_media
+              WHERE media_type = 2
+              GROUP BY post_id
+            ) vid ON vid.post_id = p.id
+            LEFT JOIN category c1 ON c1.id = p.category_id_1
+            LEFT JOIN category c2 ON c2.id = p.category_id_2
+            LEFT JOIN (
+              SELECT pt.post_id,
+                     GROUP_CONCAT(t.name ORDER BY t.id SEPARATOR ',') AS topicNames
+              FROM post_topic pt
+              JOIN topic t ON t.id = pt.topic_id
+              GROUP BY pt.post_id
+            ) tp ON tp.post_id = p.id
+            WHERE 1 = 1
+            <if test="categoryId != null">
+              AND (p.category_id_1 = #{categoryId} OR p.category_id_2 = #{categoryId})
+            </if>
+            <if test="year != null">
+              AND YEAR(p.created_at) = #{year}
+            </if>
+            <if test="month != null">
+              AND MONTH(p.created_at) = #{month}
+            </if>
+            <if test="keyword != null and keyword != ''">
+              AND (p.title LIKE CONCAT('%', #{keyword}, '%') OR p.content LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            ORDER BY p.created_at DESC
+            LIMIT #{limit} OFFSET #{offset}
+            </script>
+            """)
+    List<Post> listAdminPostPage(@Param("offset") int offset,
+                                 @Param("limit") int limit,
+                                 @Param("categoryId") Long categoryId,
+                                 @Param("year") Integer year,
+                                 @Param("month") Integer month,
+                                 @Param("keyword") String keyword);
+
+    @Select("""
+            <script>
+            SELECT COUNT(*) FROM post p
+            WHERE 1 = 1
+            <if test="categoryId != null">
+              AND (p.category_id_1 = #{categoryId} OR p.category_id_2 = #{categoryId})
+            </if>
+            <if test="year != null">
+              AND YEAR(p.created_at) = #{year}
+            </if>
+            <if test="month != null">
+              AND MONTH(p.created_at) = #{month}
+            </if>
+            <if test="keyword != null and keyword != ''">
+              AND (p.title LIKE CONCAT('%', #{keyword}, '%') OR p.content LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            </script>
+            """)
+    long countAdminPostPage(@Param("categoryId") Long categoryId,
+                            @Param("year") Integer year,
+                            @Param("month") Integer month,
+                            @Param("keyword") String keyword);
+
+    @Update("""
+            <script>
+            UPDATE post SET status = 2, updated_at = NOW()
+            WHERE id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">
+              #{id}
+            </foreach>
+            </script>
+            """)
+    int updateStatusDeletedBatch(@Param("ids") List<Long> ids);
 }
 

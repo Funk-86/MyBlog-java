@@ -1,5 +1,6 @@
 package org.example.myblog.controller;
 
+import org.example.myblog.dto.AdminBatchPostIdsRequest;
 import org.example.myblog.dto.CreatePostRequest;
 import org.example.myblog.entiy.Post;
 import org.example.myblog.mapper.PostMapper;
@@ -172,25 +173,32 @@ public class PostController {
 
     /**
      * 管理端：帖子列表（带总数，用于表格分页）
-     * GET /post/admin/list?page=1&size=10[&categoryId=2]
+     * GET /post/admin/list?page=1&size=10[&categoryId=2][&year=2026][&month=3][&keyword=xxx]
      */
     @GetMapping("/admin/list")
     @ResponseBody
     public Map<String, Object> adminPostList(@RequestParam(value = "page", defaultValue = "1") int page,
                                              @RequestParam(value = "size", defaultValue = "10") int size,
-                                             @RequestParam(value = "categoryId", required = false) Long categoryId) {
-        int offset = (page - 1) * size;
-        List<Post> list;
-        long total;
-        if (categoryId != null) {
-            // 分区 + 热度排序，统计同一筛选条件下的总数
-            list = postMapper.listByHotScoreWithCategory(categoryId, offset, size, null);
-            total = postMapper.countByCategory(categoryId);
-        } else {
-            // 全站热门列表，统计可见且正常的总数
-            list = postMapper.listByHotScore(offset, size, null);
-            total = postMapper.countVisible();
+                                             @RequestParam(value = "categoryId", required = false) Long categoryId,
+                                             @RequestParam(value = "year", required = false) Integer year,
+                                             @RequestParam(value = "month", required = false) Integer month,
+                                             @RequestParam(value = "keyword", required = false) String keyword) {
+        if (size <= 0) {
+            size = 10;
         }
+        if (size > 100) {
+            size = 100;
+        }
+        int offset = Math.max(0, page - 1) * size;
+        String kw = keyword != null ? keyword.trim() : null;
+        if (kw != null && kw.isEmpty()) {
+            kw = null;
+        }
+        if (month != null && (month < 1 || month > 12)) {
+            month = null;
+        }
+        List<Post> list = postMapper.listAdminPostPage(offset, size, categoryId, year, month, kw);
+        long total = postMapper.countAdminPostPage(categoryId, year, month, kw);
         Map<String, Object> result = new HashMap<>();
         result.put("list", list);
         result.put("total", total);
@@ -385,6 +393,24 @@ public class PostController {
     public Map<String, Object> adminDelete(@RequestParam("postId") Long postId) {
         postService.adminDeletePost(postId);
         Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        return result;
+    }
+
+    /**
+     * 管理端：批量软删除
+     * POST /post/admin/deleteBatch  Body: { "postIds": [1,2,3] }
+     */
+    @PostMapping("/admin/deleteBatch")
+    @ResponseBody
+    public Map<String, Object> adminDeleteBatch(@RequestBody AdminBatchPostIdsRequest req) {
+        Map<String, Object> result = new HashMap<>();
+        if (req == null || req.getPostIds() == null || req.getPostIds().isEmpty()) {
+            result.put("success", false);
+            result.put("message", "postIds 不能为空");
+            return result;
+        }
+        postService.adminDeletePosts(req.getPostIds());
         result.put("success", true);
         return result;
     }

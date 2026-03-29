@@ -38,6 +38,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -350,6 +351,22 @@ public class PostServiceImpl implements PostService {
         Post p = postMapper.selectById(postId);
         if (p == null) return;
         postMapper.updateStatus(postId, 2);
+    }
+
+    @Override
+    @Transactional
+    public void adminDeletePosts(List<Long> postIds) {
+        if (postIds == null || postIds.isEmpty()) {
+            return;
+        }
+        List<Long> ids = postIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) {
+            return;
+        }
+        postMapper.updateStatusDeletedBatch(ids);
     }
 
     @Override
