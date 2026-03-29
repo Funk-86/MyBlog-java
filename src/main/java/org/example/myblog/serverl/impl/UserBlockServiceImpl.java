@@ -1,10 +1,14 @@
 package org.example.myblog.serverl.impl;
 
+import org.example.myblog.dto.FollowUserDTO;
 import org.example.myblog.mapper.UserBlockMapper;
 import org.example.myblog.serverl.UserBlockService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collections;
+import java.util.List;
 
 @Service
 public class UserBlockServiceImpl implements UserBlockService {
@@ -35,5 +39,20 @@ public class UserBlockServiceImpl implements UserBlockService {
     public boolean isBlocked(Long blockerId, Long blockedId) {
         if (blockerId == null || blockedId == null) return false;
         return userBlockMapper.countPair(blockerId, blockedId) > 0;
+    }
+
+    @Override
+    public List<FollowUserDTO> listBlockedUsers(Long blockerId, int limit) {
+        if (blockerId == null) {
+            return Collections.emptyList();
+        }
+        if (limit <= 0) {
+            limit = 100;
+        }
+        if (limit > 200) {
+            limit = 200;
+        }
+        List<FollowUserDTO> list = userBlockMapper.listBlockedUsers(blockerId, limit);
+        return list != null ? list : Collections.emptyList();
     }
 }

@@ -333,6 +333,17 @@ public class UserController {
     }
 
     /**
+     * 我拉黑的用户列表
+     * GET /user/blocked/list?blockerId=1&limit=100
+     */
+    @GetMapping("/blocked/list")
+    @ResponseBody
+    public List<FollowUserDTO> blockedUserList(@RequestParam("blockerId") Long blockerId,
+                                               @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        return userBlockService.listBlockedUsers(blockerId, limit);
+    }
+
+    /**
      * 我关注的人列表（发私信用）
      * GET /user/following?userId=1&limit=50
      */

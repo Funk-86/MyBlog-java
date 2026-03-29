@@ -1,6 +1,7 @@
 package org.example.myblog.mapper;
 
 import org.apache.ibatis.annotations.*;
+import org.example.myblog.dto.FollowUserDTO;
 
 import java.util.List;
 
@@ -30,4 +31,21 @@ public interface UserBlockMapper {
      */
     @Select("SELECT blocker_id FROM user_block WHERE blocked_id = #{viewerUserId}")
     List<Long> listBlockerIdsWhoHideFrom(@Param("viewerUserId") Long viewerUserId);
+
+    /**
+     * 我拉黑的用户（拉黑方视角）
+     */
+    @Select("""
+            SELECT u.id,
+                   u.username                        AS username,
+                   COALESCE(NULLIF(TRIM(up.nickname), ''), u.username) AS nickname,
+                   up.avatar_url                     AS avatarUrl
+            FROM user_block ub
+            JOIN `user` u ON u.id = ub.blocked_id
+            LEFT JOIN user_profile up ON up.user_id = u.id
+            WHERE ub.blocker_id = #{blockerId}
+            ORDER BY ub.created_at DESC
+            LIMIT #{limit}
+            """)
+    List<FollowUserDTO> listBlockedUsers(@Param("blockerId") Long blockerId, @Param("limit") int limit);
 }
