@@ -1,12 +1,15 @@
 package org.example.myblog.storage;
 
+import com.aliyun.oss.ClientConfiguration;
 import com.aliyun.oss.ClientException;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClient;
 import com.aliyun.oss.OSSException;
 import com.aliyun.oss.model.ObjectMetadata;
+import com.aliyun.oss.model.PutObjectRequest;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -40,7 +43,17 @@ public class AliyunOssClientFacade implements AutoCloseable {
             throw new IllegalStateException(
                     "阿里云 OSS 未配置完整：endpoint / access-key-id / access-key-secret / bucket / public-base-url");
         }
-        this.ossClient = new OSSClient(endpoint.trim(), accessKeyId.trim(), accessKeySecret.trim());
+        /*
+         * 默认 SDK 套接字超时较短，大视频 PUT 易触发 SocketTimeout；SDK 内部重试时对流执行 reset 会失败。
+         * 拉长超时 + 本地文件用 PutObjectRequest(File) 上传，避免「Resetting to invalid mark」。
+         */
+        ClientConfiguration conf = new ClientConfiguration();
+        conf.setConnectionTimeout(120_000);
+        conf.setSocketTimeout(0);
+        conf.setMaxErrorRetry(5);
+        conf.setRequestTimeoutEnabled(false);
+        this.ossClient = new OSSClient(
+                endpoint.trim(), accessKeyId.trim(), accessKeySecret.trim(), conf);
         this.bucket = bucket.trim();
         this.publicBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
     }
@@ -96,48 +109,51 @@ public class AliyunOssClientFacade implements AutoCloseable {
 
     /**
      * Multipart 上传到指定 key，返回完整 HTTPS URL。
+     * 先落盘再上传，避免 {@link MultipartFile#getInputStream()} 无法 mark/reset 导致 SDK 重试失败。
      */
     public String uploadMultipartToKey(MultipartFile file, String key) throws IOException {
-        long len = file.getSize();
-        String ct = file.getContentType();
-        return putObjectWithRetry(() -> file.getInputStream(), len >= 0 ? len : 0, ct, key);
+        Path temp = Files.createTempFile("oss-upload-", ".bin");
+        try {
+            file.transferTo(temp);
+            String ct = file.getContentType();
+            if (ct == null || ct.isBlank()) {
+                ct = "application/octet-stream";
+            }
+            return uploadLocalFile(temp, key, ct);
+        } finally {
+            try {
+                Files.deleteIfExists(temp);
+            } catch (IOException ignore) {
+            }
+        }
     }
 
     /**
      * 本地文件上传到指定 key，返回完整 HTTPS URL。
+     * 使用 {@link PutObjectRequest} + {@link File}，SDK 重试时可重新读文件，不会出现 reset 流错误。
      */
     public String uploadLocalFile(Path localPath, String key, String contentType) throws IOException {
         if (localPath == null || !Files.exists(localPath)) {
             throw new IOException("local file missing");
         }
         long len = Files.size(localPath);
-        return putObjectWithRetry(() -> Files.newInputStream(localPath), len, contentType, key);
-    }
-
-    @FunctionalInterface
-    private interface StreamSupplier {
-        InputStream get() throws IOException;
-    }
-
-    private String putObjectWithRetry(
-            StreamSupplier streamSupplier,
-            long contentLength,
-            String contentType,
-            String key) throws IOException {
+        File f = localPath.toFile();
         IOException lastIo = null;
         OSSException lastOss = null;
         ClientException lastClient = null;
         int maxAttempts = 3;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            try (InputStream in = streamSupplier.get()) {
+            try {
                 ObjectMetadata m = new ObjectMetadata();
-                if (contentLength > 0) {
-                    m.setContentLength(contentLength);
+                if (len > 0) {
+                    m.setContentLength(len);
                 }
                 if (contentType != null && !contentType.isBlank()) {
                     m.setContentType(contentType);
                 }
-                ossClient.putObject(bucket, key, in, m);
+                PutObjectRequest req = new PutObjectRequest(bucket, key, f);
+                req.setMetadata(m);
+                ossClient.putObject(req);
                 return publicUrlForKey(key);
             } catch (OSSException e) {
                 lastOss = e;
@@ -151,10 +167,14 @@ public class AliyunOssClientFacade implements AutoCloseable {
                     throw e;
                 }
                 sleepBackoff(attempt);
-            } catch (IOException e) {
-                lastIo = e;
-                if (!isTransientIo(e) || attempt == maxAttempts) {
-                    throw e;
+            } catch (Exception e) {
+                if (e instanceof IOException io) {
+                    lastIo = io;
+                    if (!isTransientIo(io) || attempt == maxAttempts) {
+                        throw io;
+                    }
+                } else {
+                    throw new IOException(e);
                 }
                 sleepBackoff(attempt);
             }
