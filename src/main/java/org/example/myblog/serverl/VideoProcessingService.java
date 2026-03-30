@@ -1,11 +1,13 @@
 package org.example.myblog.serverl;
 
 import org.example.myblog.mapper.PostMediaMapper;
+import org.example.myblog.storage.AliyunOssClientFacade;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -15,6 +17,9 @@ import java.util.concurrent.TimeUnit;
 
 @Service
 public class VideoProcessingService {
+
+    @Autowired(required = false)
+    private AliyunOssClientFacade aliyunOssClientFacade;
 
     @Value("${video.upload.ffmpeg-bin:ffmpeg}")
     private String ffmpegBin;
@@ -42,19 +47,50 @@ public class VideoProcessingService {
         return base.resolve(subdir);
     }
 
+    /**
+     * 本地 post_video 路径，或 OSS 公开 URL 时下载到临时文件供 ffmpeg 使用。
+     */
     private Path resolveVideoPath(String videoUrl) {
-        if (videoUrl == null || videoUrl.isBlank()) return null;
-        Path fileName = Paths.get(videoUrl).getFileName();
-        if (fileName == null) return null;
+        if (videoUrl == null || videoUrl.isBlank()) {
+            return null;
+        }
+        String trimmed = videoUrl.trim();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            try {
+                return AliyunOssClientFacade.downloadHttpToTempFile(trimmed);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+        Path fileName = Paths.get(trimmed).getFileName();
+        if (fileName == null) {
+            return null;
+        }
         return resolveUploadDir("post_video").resolve(fileName.toString()).toAbsolutePath().normalize();
+    }
+
+    private boolean isHttpVideoUrl(String videoUrl) {
+        if (videoUrl == null || videoUrl.isBlank()) {
+            return false;
+        }
+        String t = videoUrl.trim();
+        return t.startsWith("http://") || t.startsWith("https://");
     }
 
     @Async("ffmpegExecutor")
     public void enqueueTranscode(String videoUrl) {
+        boolean remote = isHttpVideoUrl(videoUrl);
+        String ossKey = remote && aliyunOssClientFacade != null
+                ? aliyunOssClientFacade.keyFromPublicUrl(videoUrl.trim())
+                : null;
         Path inputPath = resolveVideoPath(videoUrl);
-        if (inputPath == null) return;
+        if (inputPath == null) {
+            return;
+        }
         try {
-            if (!Files.exists(inputPath) || Files.size(inputPath) <= 0) return;
+            if (!Files.exists(inputPath) || Files.size(inputPath) <= 0) {
+                return;
+            }
             String fileName = inputPath.getFileName().toString();
             String ext = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf(".")) : ".mp4";
             Path outputPath = Files.createTempFile("video-transcoded-", ext);
@@ -86,7 +122,8 @@ public class VideoProcessingService {
                 try {
                     p.destroyForcibly();
                     p.waitFor(3, TimeUnit.SECONDS);
-                } catch (Exception ignore) {}
+                } catch (Exception ignore) {
+                }
                 Files.deleteIfExists(outputPath);
                 return;
             }
@@ -94,8 +131,20 @@ public class VideoProcessingService {
                 Files.deleteIfExists(outputPath);
                 return;
             }
-            Files.move(outputPath, inputPath, StandardCopyOption.REPLACE_EXISTING);
+            if (remote && aliyunOssClientFacade != null && ossKey != null) {
+                aliyunOssClientFacade.uploadLocalFile(outputPath, ossKey, "video/mp4");
+                Files.deleteIfExists(outputPath);
+            } else {
+                Files.move(outputPath, inputPath, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception ignore) {
+        } finally {
+            if (remote && inputPath != null) {
+                try {
+                    Files.deleteIfExists(inputPath);
+                } catch (IOException ignore) {
+                }
+            }
         }
     }
 
@@ -104,16 +153,40 @@ public class VideoProcessingService {
      * 用于上传视频后立即出封面（发帖前即可带回 coverUrl），与异步补封面共用逻辑。
      */
     public String extractCoverToPostImgDir(Path videoPath) {
-        if (videoPath == null) return null;
+        Path coverPath = extractCoverToTempFile(videoPath);
+        if (coverPath == null) {
+            return null;
+        }
         try {
-            if (!Files.exists(videoPath) || Files.size(videoPath) <= 0) return null;
             Path imageDir = resolveUploadDir("post_img");
             Files.createDirectories(imageDir);
             String coverName = UUID.randomUUID() + ".jpg";
-            Path coverPath = imageDir.resolve(coverName).toAbsolutePath().normalize();
+            Path dest = imageDir.resolve(coverName).toAbsolutePath().normalize();
+            Files.move(coverPath, dest, StandardCopyOption.REPLACE_EXISTING);
+            return "/post_img/" + coverName;
+        } catch (Exception ignore) {
+            try {
+                Files.deleteIfExists(coverPath);
+            } catch (IOException ignored) {
+            }
+            return null;
+        }
+    }
+
+    /**
+     * 截取封面到临时 JPG 文件；调用方负责删除。失败返回 null。
+     */
+    public Path extractCoverToTempFile(Path videoPath) {
+        if (videoPath == null) {
+            return null;
+        }
+        try {
+            if (!Files.exists(videoPath) || Files.size(videoPath) <= 0) {
+                return null;
+            }
+            Path coverPath = Files.createTempFile("post-cover-", ".jpg");
             Path ffmpegLog = Files.createTempFile("ffmpeg-cover-", ".log");
 
-            // -ss 放在 -i 前：快速定位；0.1s 兼顾极短视频，减少纯黑首帧
             ProcessBuilder pb = new ProcessBuilder(
                     ffmpegBin,
                     "-y",
@@ -141,7 +214,7 @@ public class VideoProcessingService {
                 Files.deleteIfExists(coverPath);
                 return null;
             }
-            return "/post_img/" + coverName;
+            return coverPath;
         } catch (Exception ignore) {
             return null;
         }

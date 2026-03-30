@@ -8,6 +8,7 @@ import org.example.myblog.serverl.PostBehaviorService;
 import org.example.myblog.serverl.PostHotService;
 import org.example.myblog.serverl.PostService;
 import org.example.myblog.serverl.VideoProcessingService;
+import org.example.myblog.storage.AliyunOssClientFacade;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
@@ -45,6 +46,9 @@ public class PostController {
 
     @Autowired
     private VideoProcessingService videoProcessingService;
+
+    @Autowired(required = false)
+    private AliyunOssClientFacade aliyunOssClientFacade;
 
     /**
      * 视频上传“额定大小”（超过后自动转码降画质）
@@ -595,16 +599,18 @@ public class PostController {
         if (file.isEmpty()) {
             return "";
         }
-        Path uploadDir = resolveUploadDir("post_img");
-        Files.createDirectories(uploadDir);
         String original = file.getOriginalFilename();
         String ext = "";
         if (original != null && original.contains(".")) {
             ext = original.substring(original.lastIndexOf("."));
         }
         String fileName = UUID.randomUUID() + ext;
+        if (aliyunOssClientFacade != null) {
+            return aliyunOssClientFacade.uploadMultipartToKey(file, "post_img/" + fileName);
+        }
+        Path uploadDir = resolveUploadDir("post_img");
+        Files.createDirectories(uploadDir);
         Path target = uploadDir.resolve(fileName);
-        // 云环境下优先使用 transferTo，减少流复制带来的耗时/不稳定
         file.transferTo(target);
         return "/post_img/" + fileName;
     }
@@ -623,11 +629,9 @@ public class PostController {
             out.put("videoUrl", "");
             return out;
         }
-        Path uploadDir = resolveUploadDir("post_video");
-        Files.createDirectories(uploadDir);
 
         long ratedBytes = Math.max(1L, videoRatedSizeMb) * 1024L * 1024L;
-        long size = file.getSize(); // 可能返回 -1（未知），未知则不转码
+        long size = file.getSize();
         boolean shouldTranscode = size > 0 && size > ratedBytes;
 
         String original = file.getOriginalFilename();
@@ -635,8 +639,47 @@ public class PostController {
         if (original != null && original.contains(".")) {
             ext = original.substring(original.lastIndexOf("."));
         }
-
         String fallbackFileName = UUID.randomUUID() + (ext != null && !ext.isBlank() ? ext : ".mp4");
+
+        if (aliyunOssClientFacade != null) {
+            Path tempVideo = Files.createTempFile("post-video-upload-", ext != null && !ext.isBlank() ? ext : ".mp4");
+            try {
+                file.transferTo(tempVideo);
+                String videoKey = "post_video/" + fallbackFileName;
+                String ct = file.getContentType();
+                if (ct == null || ct.isBlank()) {
+                    ct = "video/mp4";
+                }
+                String videoUrl = aliyunOssClientFacade.uploadLocalFile(tempVideo, videoKey, ct);
+                out.put("videoUrl", videoUrl);
+
+                if (isFfmpegAvailable()) {
+                    Path coverTemp = videoProcessingService.extractCoverToTempFile(tempVideo);
+                    if (coverTemp != null && Files.exists(coverTemp)) {
+                        String coverName = UUID.randomUUID() + ".jpg";
+                        String coverKey = "post_img/" + coverName;
+                        try {
+                            String coverUrl = aliyunOssClientFacade.uploadLocalFile(coverTemp, coverKey, "image/jpeg");
+                            out.put("coverUrl", coverUrl);
+                        } finally {
+                            Files.deleteIfExists(coverTemp);
+                        }
+                    }
+                    if (shouldTranscode) {
+                        videoProcessingService.enqueueTranscode(videoUrl);
+                    }
+                }
+            } finally {
+                try {
+                    Files.deleteIfExists(tempVideo);
+                } catch (IOException ignore) {
+                }
+            }
+            return out;
+        }
+
+        Path uploadDir = resolveUploadDir("post_video");
+        Files.createDirectories(uploadDir);
         Path fallbackTarget = uploadDir.resolve(fallbackFileName);
         file.transferTo(fallbackTarget);
         String videoUrl = "/post_video/" + fallbackFileName;
