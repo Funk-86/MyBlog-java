@@ -1,12 +1,16 @@
 package org.example.myblog.storage;
 
+import com.aliyun.oss.ClientException;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClient;
+import com.aliyun.oss.OSSException;
 import com.aliyun.oss.model.ObjectMetadata;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.UUID;
 
 /**
@@ -64,10 +68,85 @@ public class AliyunOssAvatarStorageService implements AvatarStorageService {
         if (file.getContentType() != null && !file.getContentType().isBlank()) {
             meta.setContentType(file.getContentType());
         }
-        try (InputStream in = file.getInputStream()) {
-            ossClient.putObject(bucket, key, in, meta);
+        IOException lastIo = null;
+        OSSException lastOss = null;
+        ClientException lastClient = null;
+        int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try (InputStream in = file.getInputStream()) {
+                ossClient.putObject(bucket, key, in, meta);
+                return publicBaseUrl + "/" + key;
+            } catch (OSSException e) {
+                lastOss = e;
+                if (!isTransientOss(e) || attempt == maxAttempts) {
+                    throw e;
+                }
+                sleepBackoff(attempt);
+            } catch (ClientException e) {
+                lastClient = e;
+                if (attempt == maxAttempts) {
+                    throw e;
+                }
+                sleepBackoff(attempt);
+            } catch (IOException e) {
+                lastIo = e;
+                if (!isTransientIo(e) || attempt == maxAttempts) {
+                    throw e;
+                }
+                sleepBackoff(attempt);
+            }
         }
-        return publicBaseUrl + "/" + key;
+        if (lastOss != null) {
+            throw lastOss;
+        }
+        if (lastClient != null) {
+            throw lastClient;
+        }
+        if (lastIo != null) {
+            throw lastIo;
+        }
+        throw new IOException("OSS upload failed after retries");
+    }
+
+    private static boolean isTransientIo(IOException e) {
+        if (e instanceof SocketTimeoutException || e instanceof SocketException) {
+            return true;
+        }
+        String m = e.getMessage();
+        return m != null && (m.contains("reset") || m.contains("timed out") || m.contains("Broken pipe"));
+    }
+
+    /** SDK 2.x 以 ErrorCode 为准；服务端/限流/超时类可重试 */
+    private static boolean isTransientOss(OSSException e) {
+        String c = e.getErrorCode();
+        if (c == null) {
+            return true;
+        }
+        switch (c) {
+            case "InternalError":
+            case "ServiceUnavailable":
+            case "SlowDown":
+            case "RequestTimeout":
+            case "OperationTimeout":
+            case "MaxRetryReached":
+                return true;
+            case "AccessDenied":
+            case "NoSuchBucket":
+            case "InvalidAccessKeyId":
+            case "SignatureDoesNotMatch":
+            case "InvalidArgument":
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private static void sleepBackoff(int attempt) {
+        try {
+            Thread.sleep(200L * attempt);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Override
