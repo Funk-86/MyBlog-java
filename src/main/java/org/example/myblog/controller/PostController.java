@@ -645,29 +645,18 @@ public class PostController {
             Path tempVideo = Files.createTempFile("post-video-upload-", ext != null && !ext.isBlank() ? ext : ".mp4");
             try {
                 file.transferTo(tempVideo);
-                String videoKey = "post_video/" + fallbackFileName;
-                String ct = file.getContentType();
-                if (ct == null || ct.isBlank()) {
-                    ct = "video/mp4";
-                }
-                String videoUrl = aliyunOssClientFacade.uploadLocalFile(tempVideo, videoKey, ct);
+                // Zeabur 网关对长连接/长请求较敏感：同步上传 OSS 可能导致前端直接断连（ERR_CONNECTION_CLOSED）。
+                // 这里先落盘到本地并快速返回，让发帖流程继续；封面/转码仍走异步逻辑。
+                Path uploadDir = resolveUploadDir("post_video");
+                Files.createDirectories(uploadDir);
+                Path fallbackTarget = uploadDir.resolve(fallbackFileName);
+                Files.move(tempVideo, fallbackTarget, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+                String videoUrl = "/post_video/" + fallbackFileName;
                 out.put("videoUrl", videoUrl);
 
-                if (isFfmpegAvailable()) {
-                    Path coverTemp = videoProcessingService.extractCoverToTempFile(tempVideo);
-                    if (coverTemp != null && Files.exists(coverTemp)) {
-                        String coverName = UUID.randomUUID() + ".jpg";
-                        String coverKey = "post_img/" + coverName;
-                        try {
-                            String coverUrl = aliyunOssClientFacade.uploadLocalFile(coverTemp, coverKey, "image/jpeg");
-                            out.put("coverUrl", coverUrl);
-                        } finally {
-                            Files.deleteIfExists(coverTemp);
-                        }
-                    }
-                    if (shouldTranscode) {
-                        videoProcessingService.enqueueTranscode(videoUrl);
-                    }
+                if (shouldTranscode) {
+                    videoProcessingService.enqueueTranscode(videoUrl);
                 }
             } finally {
                 try {
