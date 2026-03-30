@@ -79,6 +79,55 @@ public class SensitiveWordController {
     }
 
     /**
+     * 管理端：更新违禁词
+     * PUT /sensitive-word/update
+     * Body: { "id": 1, "word": "xxx", "level": 2, "status": 0 }
+     */
+    @PutMapping("/update")
+    @ResponseBody
+    public SensitiveWord update(@RequestBody Map<String, Object> body) {
+        if (body == null || body.get("id") == null) {
+            throw new IllegalArgumentException("id 不能为空");
+        }
+        int id = Integer.parseInt(body.get("id").toString());
+        SensitiveWord existing = sensitiveWordMapper.findById(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("记录不存在");
+        }
+        String word = body.get("word") != null ? body.get("word").toString().trim() : existing.getWord();
+        if (word == null || word.isEmpty()) {
+            throw new IllegalArgumentException("违禁词内容不能为空");
+        }
+        if (word.length() > 100) {
+            throw new IllegalArgumentException("违禁词最多 100 字");
+        }
+        if (sensitiveWordMapper.countByWordExcludingId(word, id) > 0) {
+            throw new IllegalArgumentException("该违禁词已存在");
+        }
+        int level = existing.getLevel() != null ? existing.getLevel() : 2;
+        if (body.get("level") != null) {
+            level = Integer.parseInt(body.get("level").toString());
+        }
+        if (level < 1 || level > 3) {
+            level = 2;
+        }
+        int status = existing.getStatus() != null ? existing.getStatus() : 0;
+        if (body.get("status") != null) {
+            status = Integer.parseInt(body.get("status").toString());
+        }
+        if (status != 0 && status != 1) {
+            status = 0;
+        }
+        SensitiveWord sw = new SensitiveWord();
+        sw.setId(id);
+        sw.setWord(word);
+        sw.setLevel(level);
+        sw.setStatus(status);
+        sensitiveWordMapper.updateById(sw);
+        return sensitiveWordMapper.findById(id);
+    }
+
+    /**
      * 管理端：从 txt 批量导入违禁词（UTF-8，每行一个或一行内逗号/分号分隔）
      * POST /sensitive-word/import-txt  multipart: file, level(可选), status(可选)
      * 返回：{ success, imported, duplicates, invalid }
