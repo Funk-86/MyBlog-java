@@ -1,7 +1,9 @@
 package org.example.myblog.config;
 
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
@@ -10,12 +12,13 @@ import java.util.Arrays;
 
 /**
  * 全局 CORS 配置（含静态资源 /post_video、/user_img、/post_img）
+ * 通过 {@link FilterRegistrationBean} 设为最高优先级，避免其它 Filter 先于 CORS 处理导致跨域响应缺少头。
  */
 @Configuration
 public class CorsConfig {
 
     @Bean
-    public CorsFilter corsFilter() {
+    public FilterRegistrationBean<CorsFilter> corsFilterRegistration() {
         CorsConfiguration config = new CorsConfiguration();
         // 允许的前端地址（开发 + 线上）
         config.addAllowedOrigin("http://localhost:5173");  // Vite / H5 开发
@@ -39,7 +42,10 @@ public class CorsConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         // 全局应用，包含 /post_video、/user_img、/post_img 等静态资源
         source.registerCorsConfiguration("/**", config);
-        return new CorsFilter(source);
+        CorsFilter filter = new CorsFilter(source);
+        FilterRegistrationBean<CorsFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return reg;
     }
 }
 
