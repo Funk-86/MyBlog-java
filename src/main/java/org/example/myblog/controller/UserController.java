@@ -17,8 +17,8 @@ import org.example.myblog.mapper.UserProfileMapper;
 import org.example.myblog.serverl.EmailCodeService;
 import org.example.myblog.serverl.UserBlockService;
 import org.example.myblog.serverl.UserService;
+import org.example.myblog.storage.AvatarStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,18 +30,13 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.UUID;
 
 @Controller
 @RequestMapping("/user")
 public class UserController {
-
-    @Value("${upload.base-path:.}")
-    private String uploadBasePath;
 
     @Autowired
     private UserService userService;
@@ -57,6 +52,9 @@ public class UserController {
 
     @Autowired
     private UserBlockService userBlockService;
+
+    @Autowired
+    private AvatarStorageService avatarStorageService;
 
     /**
      * 管理端：用户列表（带总数，与帖子管理列表分页一致）
@@ -434,27 +432,8 @@ public class UserController {
             return "";
         }
 
-        // 保存到上传根目录下的 user_img（Zeabur 可设 UPLOAD_BASE_PATH=/tmp）
-        Path base = Paths.get(uploadBasePath == null || uploadBasePath.isEmpty() ? "." : uploadBasePath).toAbsolutePath().normalize();
-        Path uploadDir = base.resolve("user_img");
-        Files.createDirectories(uploadDir);
-
-        String originalFilename = file.getOriginalFilename();
-        String ext = "";
-        if (originalFilename != null && originalFilename.contains(".")) {
-            ext = originalFilename.substring(originalFilename.lastIndexOf("."));
-        }
-        String fileName = userId + "_" + UUID.randomUUID() + ext;
-        Path targetPath = uploadDir.resolve(fileName);
-
-        // 在云环境中优先使用 transferTo，减少流读取/复制带来的不稳定与耗时
-        file.transferTo(targetPath);
-
-        // 对外访问路径
-        String avatarUrl = "/user_img/" + fileName;
-        // 更新或插入 user_profile.avatar_url
+        String avatarUrl = avatarStorageService.saveAvatar(file, userId);
         userProfileMapper.upsertAvatar(userId, avatarUrl);
-
         return avatarUrl;
     }
 }

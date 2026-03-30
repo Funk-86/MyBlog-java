@@ -115,6 +115,12 @@
             <artifactId>commons-codec</artifactId>
             <version>1.10</version>
         </dependency>
+        <!-- S3 协议兼容（Cloudflare R2 / AWS S3 / MinIO 等） -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.25.16</version>
+        </dependency>
     </dependencies>
 
     <build>
